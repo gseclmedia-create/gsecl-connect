@@ -1,0 +1,49 @@
+/* GSECL Connect for the web: sign-in screen, file hand-over, and Android-only settings hidden. */
+html:not(.web-ready) body > *:not(#webLogin):not(.web-offer):not(.web-toast) { visibility: hidden; }
+#webLogin { position: fixed; inset: 0; z-index: 1000; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: linear-gradient(135deg, #2B1055 0%, #5B1D6E 55%, #903090 100%); color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+#webLogin .wl-col { max-width: 420px; margin: 0 auto; padding: max(40px, env(safe-area-inset-top)) 16px 32px; text-align: center; }
+#webLogin .wl-logo { width: 92px; height: 104px; margin: 0 auto; background: #fff; border-radius: 18px; padding: 8px; box-sizing: border-box; }
+#webLogin .wl-logo img { width: 100%; height: 100%; object-fit: contain; }
+#webLogin h1 { font-size: 22px; margin: 16px 0 0; }
+#webLogin .wl-org { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; opacity: .87; margin-top: 3px; }
+#webLogin .wl-bar { width: 56px; height: 3px; border-radius: 2px; margin: 10px auto 0; background: linear-gradient(90deg, #F47B57, #FFD166, #F47B57); }
+#webLogin .wl-sub { font-size: 13px; opacity: .8; margin: 8px 0 22px; }
+#webLogin .wl-card { background: #fff; color: #1f2937; border-radius: 18px; padding: 20px; text-align: left; }
+#webLogin .wl-card h2 { font-size: 19px; margin: 0; }
+#webLogin .wl-line { width: 36px; height: 3px; border-radius: 2px; margin-top: 6px; background: linear-gradient(90deg, #903090, #F47B57); }
+#webLogin .wl-card p { font-size: 13px; color: #6b7280; margin: 6px 0 12px; white-space: pre-line; }
+#webLogin input { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 13px 12px; font-size: 16px; border: 1px solid #d1d5db; border-radius: 12px; background: #fff; color: #111; }
+#webLogin input:focus { outline: 2px solid #903090; border-color: transparent; }
+#webLogin .wl-link { display: block; color: #903090; font-size: 13.5px; padding-top: 10px; cursor: pointer; text-decoration: underline; }
+#webLogin .wl-right { text-align: right; }
+#webLogin .wl-btn { display: block; width: 100%; margin-top: 16px; padding: 13px; border: 0; border-radius: 12px; background: #903090; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; }
+#webLogin .wl-btn:disabled { opacity: .6; }
+#webLogin .wl-orange { background: #F47B57; margin-top: 10px; }
+#webLogin .wl-note { text-align: center; margin: 18px 0 6px !important; }
+#webLogin .wl-reg { display: block; width: 100%; padding: 13px; border: 1px solid #903090; border-radius: 12px; background: #F6EAF7; color: #903090; font-size: 15px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+#webLogin .wl-msg { color: #6b7280 !important; margin-top: 12px !important; }
+#webLogin .wl-msg.wl-err { color: #b91c1c !important; }
+#webLogin .wl-foot { font-size: 12px; opacity: .8; margin: 16px 8px 0; }
+#webLogin [hidden] { display: none !important; }
+
+.web-offer { position: fixed; inset: 0; z-index: 1100; background: rgba(0, 0, 0, .45); display: flex; align-items: flex-end; justify-content: center; padding: 16px; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+.web-offer-card { background: var(--card, #fff); color: var(--ink, #111); border-radius: 18px; padding: 18px; width: 100%; max-width: 440px; box-shadow: 0 10px 40px rgba(0, 0, 0, .3); }
+.web-offer-card b { display: block; word-break: break-word; font-size: 15px; }
+.web-offer-card span { display: block; font-size: 12.5px; opacity: .7; margin: 4px 0 12px; }
+.web-offer-btns { display: flex; gap: 8px; }
+.web-offer-btns .btn { flex: 1; text-align: center; text-decoration: none; margin: 0; }
+.web-offer-btns .web-open { background: var(--accent, #903090); color: #fff !important; border-color: var(--accent, #903090); }
+.web-toast { position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 1200; background: #111; color: #fff; padding: 9px 16px; border-radius: 20px; font-size: 13px; }
+
+/* Android-only: notifications of outages / syncs, background monitoring, app lock, app update. */
+#monCard, #updCard, #lockRow, #v-info .card:has(#notifyPerm) { display: none !important; }
+/* Rakes: auto-refresh in the background is an Android feature. */
+#v-coal .tg:has(> .sw-t[data-kact="auto"]) { display: none !important; }
+
+/* iPhone: the page runs under the status bar and above the home indicator (viewport-fit=cover). */
+.hero { padding-top: calc(14px + env(safe-area-inset-top)) !important; }
+nav.bn { padding-bottom: calc(6px + env(safe-area-inset-bottom)) !important; }
+body { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+.memenu { top: calc(62px + env(safe-area-inset-top)); }
