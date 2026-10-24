@@ -3,6 +3,8 @@
 // replaced, as in the Android app's sign-in screen (LoginActivity).
 (() => {
   'use strict';
+  // Never inside another site's frame (that site could trick taps into the app).
+  if (window.top !== window.self) { try { window.top.location = window.self.location.href; } catch (e) { document.documentElement.innerHTML = ''; } return; }
   const S = () => window.webSession, api = (a, p) => window.webApi(a, p || {});
   const $ = id => document.getElementById(id);
 

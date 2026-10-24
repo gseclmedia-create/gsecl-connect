@@ -233,6 +233,7 @@
     fetch(id, url, timeoutSec) {
       const src = rawSrcOf(url);
       if (src) return rawGet(src).then(b => done('__nativeDone', id, true, b), e => done('__nativeDone', id, false, '', e.message));
+      if (/^https:\/\/(www\.)?(sldcguj\.com|dcsg\.gsecl\.in)\//i.test(url)) return done('__nativeDone', id, false, '', 'Shown in the Android app (this page of SLDC cannot be read from a browser)');
       const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), (timeoutSec || 30) * 1000);
       fetch(url, { signal: ctl.signal, cache: 'no-store' }).then(r => r.ok ? r.text() : Promise.reject(new Error('Source returned HTTP ' + r.status)))
         .then(b => done('__nativeDone', id, true, b), e => done('__nativeDone', id, false, '', 'Not readable from a browser; shown from the GSECL Connect service when another device has it'))
