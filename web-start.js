@@ -19,8 +19,10 @@
       } else { s.textContent = old.textContent; document.body.appendChild(s); }
       old.remove();
     }
-    // This browser never reads FOIS: its copy is not shared back as its own reading.
-    if (typeof window.liveMine === 'function') { const lm = window.liveMine; window.liveMine = (k, v) => (k === 'fois' ? undefined : lm(k, v)); }
+    // This browser's figures are copies of what the Android phones sent: never sent back as its own readings
+    // (that would make old data look new). Live sharing and the generation readings are left to the phones.
+    window.liveMine = () => {};
+    window.genPush = () => {};
     // FOIS lists shared by other devices are kept for the next visit.
     if (typeof window.kLiveFois === 'function') { const f = window.kLiveFois; window.kLiveFois = c => { if (c && c.obj) window.webKeepFois(c.obj); return f(c); }; }
     window.dispatchEvent(new Event('load'));

@@ -482,6 +482,8 @@
   @media (min-width: 1500px) { .view.on:not(#v-dsm):not(#v-coal):not(#v-safety):not(#v-connect):not(#v-chat), #dsmBody, #coalBody, #safetyBody, #conBody { column-count: 3; } }
   .alx { display: block; } .alx summary { display: flex; gap: 8px; align-items: flex-start; list-style: none; cursor: pointer; } .alx summary::-webkit-details-marker { display: none; }
   .alx summary b { margin-left: auto; font-size: 12px; white-space: nowrap; text-decoration: underline; } .alx[open] summary b { visibility: hidden; }
+  .alx-note { margin: 4px 0 12px; padding: 9px 12px; border-radius: 12px; background: var(--soft); color: var(--muted); border: 1px solid var(--line); font-size: 12.5px; }
+  .alx-note .alx-i.err { color: var(--ink); }
   .alx-i { margin: 8px 0 0 22px; font-size: 12.5px; padding-top: 8px; border-top: 1px dashed currentColor; opacity: .9; }
   .foot-credit { text-align: center; font-size: 11px; color: var(--muted); margin: 18px 0 6px; letter-spacing: .03em; }
   .foot-credit b { color: var(--accent); font-weight: 700; }
@@ -532,7 +534,6 @@
     <button class="chip" data-v="grid">Gujarat</button>
     <button class="chip" data-v="merit">Merit</button>
   </div>
-  <div id="alerts"></div>
 
   <!-- ================= Dashboard ================= -->
   <section class="view on" id="v-home">
@@ -716,6 +717,8 @@
     </div>
     <div class="card" id="updCard"></div>
   </section>
+  <!-- Notes on the live data sources: at the foot of the Generation pages (shown only there). -->
+  <div id="alerts"></div>
 </main>
 
 <nav class="bn" id="nav">
@@ -985,7 +988,7 @@ function renderAlerts() {
   // One compact line; the details open on touch (several long notes used to fill the screen).
   if (!a.length) { $('alerts').innerHTML = ''; return; }
   const errs = a.filter(x => x[0] === 'err').length, open = S.alertsOpen ? ' open' : '';
-  $('alerts').innerHTML = `<details class="alert ${errs ? 'err' : ''} alx"${open}><summary><span>⚠</span><span>${errs ? errs + ' data source' + (errs > 1 ? 's' : '') + ' unavailable' : 'Data notes'}${a.length - errs ? ` · ${a.length - errs} note${a.length - errs > 1 ? 's' : ''}` : ''} — figures shown from the sources that answered</span><b>Details</b></summary>
+  $('alerts').innerHTML = `<details class="alx alx-note"${open}><summary><span>ⓘ</span><span>Data sources${errs ? ` · ${errs} not reachable just now` : ''}${a.length - errs ? ` · ${a.length - errs} note${a.length - errs > 1 ? 's' : ''}` : ''} · figures are from the sources that answered</span><b>Details</b></summary>
     ${a.map(([c, t]) => `<div class="alx-i ${c}">${esc(t)}</div>`).join('')}</details>`;
   $('alerts').querySelector('details').addEventListener('toggle', e => { S.alertsOpen = e.target.open; });
 }
@@ -2296,6 +2299,9 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What changed in this version (shown in Profile › About); the newest first. */
 const RELEASE_NOTES = [
+  ['3.13.8', '24 Oct 2026', [
+    'Generation: notes on the data sources are shown at the foot of the page as a note, not as an error at the top',
+    'Outage list sent to GSECL Connect now includes the unit capacity (for the web version)']],
   ['3.13.7', '24 Oct 2026', [
     'Coal › Stock: rakes received in the stock ledger and the daily rake requirement come from the rake trend (rake came inside the station in FOIS); for a day FOIS shows none, the Rake Unloading entry from the Google Sheet is used, so no available figure is left out',
     'Coal › Rake trend: the same rule for received and released']],

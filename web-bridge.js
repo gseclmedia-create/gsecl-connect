@@ -173,6 +173,45 @@
     pendingNotice() { return ''; },
   };
 
+  // ---------------------------------------------------------------- sources a browser cannot read: the copies the Android phones send
+  // The GSECL feed, SLDC real-time data and SLDC outage list refuse other web sites. The Android phones send them to the
+  // GSECL Connect service every ~2 minutes; the page gets those copies here exactly as if it had read the source itself.
+  const RAW_FRESH = 20 * 60000;
+  function rawSrcOf(url) {
+    const u = String(url).split('?')[0];
+    if (/dcsg\.gsecl\.in\/final_gsecl_digen\.txt$/i.test(u)) return 'feed';
+    if (/ReadRealTimeData\.php$/i.test(u)) return 'rt';
+    if (/ReadRealTimeData2\.php$/i.test(u)) return 'rt2';
+    if (/shutdownplanning\.php$/i.test(u)) return 'out';
+    return null;
+  }
+  const raw = { at: 0, data: {}, waiting: null };
+  function rawGet(src) {
+    if (Date.now() - raw.at < 45000 && raw.data[src]) return Promise.resolve(rawBody(src));
+    if (!raw.waiting) raw.waiting = new Promise(r => setTimeout(r, 250)).then(() => api('src_raw', { srcs: ['feed', 'rt', 'rt2', 'out'] })).then(r => {
+      raw.waiting = null;
+      if (r.ok) { raw.data = r.data.data || {}; raw.at = Date.now(); }
+      else if (/unknown action/i.test(r.error)) throw new Error('Live data needs the updated GSECL Connect script (new Code.gs).');
+      else throw new Error(r.error || 'The GSECL Connect service did not answer');
+    }, e => { raw.waiting = null; throw e; });
+    return raw.waiting.then(() => rawBody(src));
+  }
+  function rawBody(src) {
+    const x = raw.data[src];
+    if (!x || Date.now() - x.at > RAW_FRESH) throw new Error('No recent reading: the Android phones send it every few minutes while their monitoring runs.');
+    return src === 'out' ? outagesHtml(JSON.parse(x.body), x.at) : x.body;
+  }
+  /** The outage list (as the phones send it) in the layout of SLDC's page, so the page's own reader takes it. */
+  function outagesHtml(list, at) {
+    const e = t => String(t === null || t === undefined ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const d = new Date(at), p = n => String(n).padStart(2, '0');
+    const head = '<tr><th>SR NO</th><th>UNIT</th><th>CAP</th><th>OUTAGE DTD</th><th>OUTAGE TIME</th><th>FORCE</th><th>PLAN</th><th>AVAILABLE</th><th>SCHEDULE DT.</th><th>REVISED EXPECTED DATE</th><th>REASON</th></tr>';
+    const rows = list.map((o, i) => { const [dt, tm] = String(o.since || '').split(/\s+/), t = String(o.type || '').toLowerCase();
+      return '<tr><td>' + (i + 1) + '</td><td>' + e(o.unit) + '</td><td>' + e(o.cap) + '</td><td>' + e(dt) + '</td><td>' + e(tm) + '</td><td>' + (t === 'forced' ? e(o.cap || 1) : '') + '</td><td>' + (t === 'planned' ? e(o.cap || 1) : '') +
+        '</td><td></td><td></td><td>' + e(o.back) + '</td><td>' + e(o.reason || (t === 'rsd' ? 'RSD' : '')) + '</td></tr>'; }).join('');
+    return '<html><body><p>UNIT OUTAGE DETAIL FOR DATE ' + p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' AT ' + p(d.getHours()) + ':' + p(d.getMinutes()) + '</p><table><tr><td>STATE SECTOR</td></tr>' + head + rows + '</table></body></html>';
+  }
+
   // ---------------------------------------------------------------- Native
   const HIST = 'gsecl_hist', HIST_KEEP = 10 * 864e5, HIST_GAP = 55000;
   const histLines = () => (LS.get(HIST) || '').split('\n').filter(Boolean);
@@ -192,6 +231,8 @@
     isSystemDark() { return !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches); },
     setBars(status) { let m = document.querySelector('meta[name=theme-color]'); if (!m) { m = document.createElement('meta'); m.name = 'theme-color'; document.head.appendChild(m); } m.content = status; },
     fetch(id, url, timeoutSec) {
+      const src = rawSrcOf(url);
+      if (src) return rawGet(src).then(b => done('__nativeDone', id, true, b), e => done('__nativeDone', id, false, '', e.message));
       const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), (timeoutSec || 30) * 1000);
       fetch(url, { signal: ctl.signal, cache: 'no-store' }).then(r => r.ok ? r.text() : Promise.reject(new Error('Source returned HTTP ' + r.status)))
         .then(b => done('__nativeDone', id, true, b), e => done('__nativeDone', id, false, '', 'Not readable from a browser; shown from the GSECL Connect service when another device has it'))
