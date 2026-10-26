@@ -102,7 +102,7 @@ function kTabSum() {
       <div data-kact="status" data-karg="In Pipeline"><span>In transit</span><b class="num">${rakes.length - inside}</b></div>
     </div>
     ${kBtn(K.busy ? 'Reading railway reports…' : 'Refresh now', 'refresh', '', true)}
-    <div class="tg" style="border-top:0;padding-bottom:0"><div><b>Auto-refresh every 15 minutes</b><span>In the background, with a notification when rakes are added or leave.</span></div><button class="sw-t ${Rake.autoRefresh() ? 'on' : ''}" data-kact="auto" aria-label="Auto-refresh"></button></div></div>`;
+    <div class="tg" style="border-top:0;padding-bottom:0"><div><b>Auto-refresh every 2 minutes</b><span>In the background, with a notification when rakes are added or leave.</span></div><button class="sw-t ${Rake.autoRefresh() ? 'on' : ''}" data-kact="auto" aria-label="Auto-refresh"></button></div></div>`;
   if (!rakes.length) return h + `<div class="card">${kEmpty(K.busy ? 'Reading the railway reports for the first time…' : 'No rakes saved yet. Tap “Refresh now”.')}</div>`;
 
   const st = kStations(), max = Math.max(1, ...st.map(s => rakes.filter(r => r.station_to === s).length));
@@ -391,3 +391,12 @@ window.appBack = () => {
   }
   return kPrevBack ? kPrevBack() : false;
 };
+
+// While the coal / rakes page is open: FOIS read again every 2 minutes (the background sync does the same when on).
+setInterval(() => {
+  try {
+    const sec = document.getElementById('v-coal') || document.querySelector('[data-section="coal"]');
+    const open = sec ? sec.classList.contains('on') || sec.offsetParent !== null : false;
+    if (open && typeof hasRake === 'function' && hasRake() && appCan('rakes') && !K.busy && document.visibilityState === 'visible') kRefresh();
+  } catch (e) { /* next time */ }
+}, 2 * 60e3);

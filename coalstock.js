@@ -12,7 +12,8 @@ const SP = {
   tr: {range: 30, from: '', to: '', scope: 'ALL'},   // receipt / consumption / stock trend
   form: 'stock', edit: {stock: null, unload: null}, saving: false,
 };
-const SP_NAME = {WTPS: 'Wanakbori', GTPS: 'Gandhinagar', STPS: 'Sikka', UTPS: 'Ukai'};
+const SP_NAME = {WTPS: 'Wanakbori', GTPS: 'Gandhinagar', STPS: 'Sikka', UTPS: 'Ukai', BLTPS: 'Bhavnagar lignite', KLTPS: 'Kutch lignite'};
+const spLignite = p => (SP.data?.lignite_plants || ['BLTPS', 'KLTPS']).includes(p);
 const SP_FOIS = {UKAI: 'UTPS', GTPS: 'GTPS', WTPS: 'WTPS', SIKKA: 'STPS'};          // railway destination -> plant code
 const SP_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -144,7 +145,8 @@ function sTabStock() {
   const date = dates.includes(SP.date) ? SP.date : spLatest();
   if (!date) return h + `<div class="card">${spEmpty('No coal stock position has been entered yet.')}${appCan('coal', 'edit') ? spBtn('Enter today\'s figures', 'tab', 'entry', true) : ''}</div>` + sFois();
   const rows = SP.data.plants.map(p => spOn(spStock(), date).find(r => r.plant === p)).filter(Boolean);
-  const sum = k => rows.reduce((t, r) => t + (r[k] || 0), 0), avg = rows.length ? sum('availability_days') / rows.length : 0;
+  const coalRows = rows.filter(r => !spLignite(r.plant)), ligRows = rows.filter(r => spLignite(r.plant));
+  const sum = k => coalRows.reduce((t, r) => t + (r[k] || 0), 0), avg = coalRows.length ? sum('availability_days') / coalRows.length : 0;
   const critical = rows.filter(r => (r.availability_days || 0) < 5 && (r.end_stock || 0) > 0);
 
   h += sCalendar(dates, date);
@@ -154,22 +156,23 @@ function sTabStock() {
     <div class="tstats" style="grid-template-columns:repeat(3,1fr);margin-top:12px">
       <div><span>Daily receipt</span><b class="num pos">+${spMt(sum('receipt'), 0)}</b><small>MT</small></div>
       <div><span>Daily consumption</span><b class="num" style="color:var(--coal)">−${spMt(sum('consumption'), 0)}</b><small>MT</small></div>
-      <div><span>Avg availability</span><b class="num">${fmt(avg, 1)} days</b><small>${rows.length} plant${rows.length === 1 ? '' : 's'}</small></div>
+      <div><span>Avg availability</span><b class="num">${fmt(avg, 1)} days</b><small>${coalRows.length} plant${coalRows.length === 1 ? '' : 's'}</small></div>
     </div></div>`;
+  h += sLignite(date);
 
   setTimeout(spRakeEvLoad, 0);
   const req = spRakeReq(), recd = p => spRecd(p, date), reqTot = Object.values(req).reduce((t, x) => t + x.rakes_per_day, 0);
   const recdAll = rows.map(r => recd(r.plant)), recdTot = recdAll.some(x => x.n !== null) ? {n: recdAll.reduce((t, x) => t + (x.n || 0), 0), src: recdAll.some(x => x.src === 'fois') ? 'fois' : 'entry', entered: null} : null;
   h += `<div class="card"><h2>Power station stock ledger <span class="more muted" style="font-weight:500;font-size:11.5px">MT · rakes</span></h2><div style="overflow-x:auto"><table class="dt num">
     <tr><th>Station</th><th>Prev<br>stock</th><th>Receipt</th><th>Consump.</th><th>End<br>stock</th><th>Avail.</th><th>Rakes<br>req./day</th><th>Rakes<br>recd.</th></tr>
-    ${rows.map(r => `<tr><td><b>${esc(r.plant)}</b></td><td>${spMt(r.prev_stock, 0)}</td><td class="pos">+${spMt(r.receipt, 0)}</td><td style="color:var(--coal)">−${spMt(r.consumption, 0)}</td><td><b>${spMt(r.end_stock, 0)}</b></td><td>${spBadge(r.availability_days || 0)}</td><td><b>${req[r.plant] ? fmt(req[r.plant].rakes_per_day, 1) : '—'}</b></td><td>${spRecdCell(recd(r.plant), req[r.plant])}</td></tr>`).join('')}
-    <tr class="hl"><td>GSECL</td><td>${spMt(sum('prev_stock'), 0)}</td><td class="pos">+${spMt(sum('receipt'), 0)}</td><td style="color:var(--coal)">−${spMt(sum('consumption'), 0)}</td><td>${spMt(sum('end_stock'), 0)}</td><td>${spBadge(avg)}</td><td>${reqTot ? fmt(reqTot, 1) : '—'}</td><td>${spRecdCell(recdTot, reqTot ? {rakes_per_day: reqTot} : null)}</td></tr></table></div>
+    ${rows.map(r => `<tr><td><b>${esc(r.plant)}</b>${spLignite(r.plant) ? ' <small class="muted">lignite</small>' : ''}</td><td>${spMt(r.prev_stock, 0)}</td><td class="pos">+${spMt(r.receipt, 0)}</td><td style="color:var(--coal)">−${spMt(r.consumption, 0)}</td><td><b>${spMt(r.end_stock, 0)}</b></td><td>${spBadge(r.availability_days || 0)}</td><td><b>${req[r.plant] ? fmt(req[r.plant].rakes_per_day, 1) : '—'}</b></td><td>${spRecdCell(recd(r.plant), req[r.plant])}</td></tr>`).join('')}
+    <tr class="hl"><td>GSECL coal</td><td>${spMt(sum('prev_stock'), 0)}</td><td class="pos">+${spMt(sum('receipt'), 0)}</td><td style="color:var(--coal)">−${spMt(sum('consumption'), 0)}</td><td>${spMt(sum('end_stock'), 0)}</td><td>${spBadge(avg)}</td><td>${reqTot ? fmt(reqTot, 1) : '—'}</td><td>${spRecdCell(recdTot, reqTot ? {rakes_per_day: reqTot} : null)}</td></tr></table></div>
     <div class="note-src">Rakes req./day = rakes needed each day at 85 % PLF (basis in the card below). Rakes recd. = rakes that came inside the station that day in FOIS (rake trend); where FOIS shows none for the day, the Rake Unloading entry from the Google Sheet is used (entered figure in brackets where it differs); red when short of the requirement.${spRakeEv.list ? '' : ' Reading the FOIS events…'}</div>
     ${SP.data.plants.filter(p => !rows.some(r => r.plant === p)).length ? `<div class="note-src">No entry for ${SP.data.plants.filter(p => !rows.some(r => r.plant === p)).join(', ')} on this date.</div>` : ''}</div>`;
 
   h += sRakeReq(rows, date);
 
-  h += `<div class="card"><h2>Stock against storage capacity</h2>${rows.map(r => {
+  h += `<div class="card"><h2>Stock against storage capacity</h2>${rows.filter(r => !spLignite(r.plant) || r.max_capacity_mt).map(r => {
     const pct = r.max_capacity_mt ? Math.min(100, (r.end_stock || 0) / r.max_capacity_mt * 100) : 0;
     return `<div class="srow" style="cursor:default"><div class="top"><span class="nm">${esc(r.plant)} <span class="muted" style="font-weight:400">${esc(SP_NAME[r.plant] || '')}</span></span><span class="vals num"><b>${r.max_capacity_mt ? fmt(pct, 0) + '%' : '—'}</b></span></div>
       <div class="vals num">${spMt(r.end_stock, 0)} of ${spMt(r.max_capacity_mt, 0)} MT · ${fmt(r.availability_days || 0, 1)} of ${r.max_capacity_days ?? '—'} days</div>
@@ -366,6 +369,8 @@ const spEvFrom = () => spIso(-30);
  */
 function spRecd(plant, date) {
   const entered = spRecdEntered(plant, date), ev = spRakeEv.list;
+  const au = (SP.data?.unload_auto?.days || []).find(r => r.plant === plant && r.date === date);   // the service's FOIS unloading figures first
+  if (au) return {n: au.received, src: 'fois', entered};
   const covered = !!ev && date >= spEvFrom() && date <= spIso(0);
   const n = covered ? ev.filter(e => e.type === 'RECEIVED' && !e.baseline && e.date === date && (SP_FOIS[e.station] || e.station) === plant).length : null;
   // Nothing available is left out: FOIS when it saw rakes come in; else the entered figure (no FOIS list shared that day,
@@ -400,13 +405,30 @@ function sRakeReq(rows, date) {
     <div class="note-src">Coal per day = MW × 24 h × 0.85 × specific coal; rakes per day = coal per day ÷ coal per rake. ${esc(basis)}. Received = rakes that came inside the station in FOIS (rake trend), ${spDay(from)} – ${spDay(date)}; for a day FOIS shows none, the Rake Unloading entry from the Google Sheet.</div></div>`;
 }
 
+/** Lignite stations (no rakes): stock, receipt, consumption and days at 85 % PLF, for the chosen date or the latest entry. */
+function sLignite(date) {
+  const plants = (SP.data.lignite_plants || []).filter(p => SP.data.plants.includes(p));
+  if (!plants.length) return '';
+  const pick = p => spOn(spStock(), date).find(r => r.plant === p) || spStock().filter(r => r.plant === p && r.date <= date).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+  const rows = plants.map(p => [p, pick(p)]), master = SP.data.master || {};
+  return `<div class="card"><h2>Lignite stock position <span class="more muted" style="font-weight:500;font-size:11.5px">BLTPS · KLTPS</span></h2>
+    ${rows.map(([p, r]) => { const m = master[p] || {}; if (!r) return `<div class="srow" style="cursor:default"><div class="top"><span class="nm">${p} <span class="muted" style="font-weight:400">${esc(SP_NAME[p])}</span></span><span class="vals muted">not entered</span></div></div>`;
+      const d = r.availability_days || 0, pct = m.max_capacity_mt ? Math.min(100, (r.end_stock || 0) / m.max_capacity_mt * 100) : Math.min(100, d / 30 * 100);
+      return `<div class="srow" style="cursor:default"><div class="top"><span class="nm">${p} <span class="muted" style="font-weight:400">${esc(SP_NAME[p])}${r.date !== date ? ' · ' + spDay(r.date) : ''}</span></span><span class="vals num"><b>${spMt(r.end_stock, 0)}</b> MT ${spBadge(d)}</span></div>
+        <div class="vals num">+${spMt(r.receipt, 0)} received · −${spMt(r.consumption, 0)} burnt · needs ${spMt(m.mt_per_day, 0)} MT a day at 85 % PLF (${fmt(m.capacity_mw, 0)} MW × ${fmt(m.coal_kg_per_kwh, 2)} kg/kWh)${m.max_capacity_mt ? ' · storage ' + spMt(m.max_capacity_mt, 0) + ' MT' : ''}</div>
+        <div class="bar"><div class="f" style="width:${pct}%;background:var(${d < 5 ? '--forced' : d < 10 ? '--planned' : '--run'})"></div></div></div>`; }).join('')}
+    <div class="note-src">Lignite reaches these stations without rakes, so only the stock position is kept. Specific lignite and storage can be set in the CoalPlants tab.</div></div>`;
+}
+
 function sRakeTrend() {
   setTimeout(spRakeEvLoad, 0);
   const plants = SP.data.unloading_plants, days = [0, -1, -2, -3, -4, -5, -6].map(spIso);
   const rakes = typeof kRakes === 'function' && appCan('rakes') ? kRakes() : [];
   const transit = rakes.filter(r => !kInside(r) && plants.includes(SP_FOIS[r.station_to])).length;
   const ev = spRakeEv.list, inPlants = e => plants.includes(SP_FOIS[e.station] || e.station);
-  const n = (d, type) => ev ? ev.filter(e => e.date === d && e.type === type && inPlants(e) && !e.baseline).length : null;
+  const au = SP.data?.unload_auto?.days || [];
+  const n = (d, type) => { const a = au.filter(r => r.date === d && plants.includes(r.plant)); if (a.length) return a.reduce((t, r) => t + (type === 'RECEIVED' ? r.received : r.released), 0);
+    return ev ? ev.filter(e => e.date === d && e.type === type && inPlants(e) && !e.baseline).length : null; };
   const entered = (d, k) => { const u = spOn(spUnload(), d).filter(r => plants.includes(r.plant)); return u.length ? u.reduce((t, r) => t + (r[k] || 0), 0) : null; };
   // FOIS first; the entered figure where FOIS has none for the day (no list shared), so nothing available is left out.
   const cell = (v, alt) => v === null || (!v && alt) ? (alt === null ? (v === null ? '—' : v) : `<span class="muted">${alt}</span>`) : v + (alt !== null && alt !== v ? ` <small class="muted">(${alt})</small>` : '');
@@ -417,17 +439,53 @@ function sRakeTrend() {
     <div class="note-src">${rakes.length ? `In transit now: <b>${transit}</b> rakes. ` : ''}Received = rake came inside the station; released = rake that was inside left the FOIS report (from the FOIS lists shared through GSECL Connect, the same on every device). Figures in brackets are the entered ones where they differ.${ev ? '' : ' Reading the FOIS events…'}</div></div>`;
 }
 
+/** Rake unloading status worked out from FOIS (the service: placement / release of every rake). */
+const spAuto = () => SP.data?.unload_auto || {days: [], rakes: [], basis: null};
 function sUnloadTable() {
+  const A = spAuto(), plants = SP.data.unloading_plants;
+  if (!A.days.length) return sUnloadEntered();
+  const dates = [...new Set(A.days.map(r => r.date))].sort();
+  const date = dates.includes(SP.udate) ? SP.udate : dates[dates.length - 1];
+  const row = p => A.days.find(r => r.date === date && r.plant === p) || {};
+  const ent = p => spOn(spUnload(), date).find(r => r.plant === p);
+  const tot = k => plants.reduce((t, p) => t + (row(p)[k] || 0), 0);
+  const hm = h => (h === null || h === undefined ? '—' : spHms(h).slice(0, -3));
+  const withEnt = (p, k, v) => { const e = ent(p); return e && e[k] !== null && e[k] !== undefined && Math.round(e[k]) !== Math.round(v || 0) ? ` <small class="muted">(entered ${fmt(e[k])})</small>` : ''; };
+  const line = (label, k, f = v => fmt(v), total = true, entK) => `<tr><td>${label}</td>${plants.map(p => `<td>${row(p)[k] === undefined || row(p)[k] === null ? '—' : f(row(p)[k])}${entK ? withEnt(p, entK, row(p)[k]) : ''}</td>`).join('')}<td><b>${total ? f(tot(k)) : ''}</b></td></tr>`;
+  const b = A.basis || {}, est = tot('wagons_est');
+  const rakes = A.rakes.filter(r => plants.includes(r.plant) && (r.placed_date === date || r.released_date === date || (r.placed_date < date && (r.inside || r.released_date > date))));
+  const free = b.free_hours || 7;
+  const week = dates.slice(-7).reverse();
+  return `<div class="card"><h2>Rake unloading status <span class="more muted" style="font-weight:500;font-size:11.5px">from FOIS · ${spDate(date)}</span></h2>
+    <div class="chips" style="margin-bottom:8px">${dates.slice(-7).map(d => `<button class="chip ${d === date ? 'on' : ''}" data-sact="uday" data-sarg="${d}">${spDay(d)}</button>`).join('')}</div>
+    <div style="overflow-x:auto"><table class="dt num">
+    <tr><th>Metric</th>${plants.map(p => `<th>${p}</th>`).join('')}<th>GSECL</th></tr>
+    ${line('Pre. day balance (nos)', 'pre_day_bal')}${line('Received (nos)', 'received', v => fmt(v), true, 'received')}${line('Released (nos)', 'released', v => fmt(v), true, 'released')}${line('Balance (nos)', 'balance')}
+    ${line('Wagons placed (nos)', 'wagons', v => fmt(v), true, 'wagons')}
+    ${line('Detention (hh:mm)', 'detention_hrs', hm)}${line('Avg. detention / rake', 'detention_avg', hm, false)}
+    ${line('Demurrage (hh:mm)', 'dem_hrs', hm)}${line('Demurrage wagon-hours', 'dem_wagon_hrs', v => fmt(v, 1))}${line('Demurrage charge (₹, est.)', 'dem_charge', v => '₹' + fmt(v))}
+    </table></div>
+    <div class="note-src">Received = rake came inside the station in FOIS (placement time: the FOIS status time, else when it was first seen inside); released = it left the FOIS report. Detention = placement to release of the rakes released that day; demurrage = detention beyond ${fmt(free)} h free time; wagon-hours = demurrage hours × wagons; charge at ₹${fmt(b.rate || 150)} per wagon-hour (AppSettings RAKE_FREE_HOURS, DEMURRAGE_RATE).${est ? ` ${est} rake${est > 1 ? 's' : ''} without a FOIS wagon count taken as ${b.wagons_default || 58} wagons.` : ''} Figures typed in the form are shown in brackets where they differ.${A.from ? ` FOIS tracking from ${spDate(A.from)}.` : ''}</div></div>
+  <div class="card"><h2>Rakes on ${spDate(date)} <span class="more muted" style="font-weight:500;font-size:11.5px">${rakes.length}</span></h2>
+    ${rakes.length ? `<div style="overflow-x:auto"><table class="dt num"><tr><th>Rake</th><th>Plant</th><th>Placed</th><th>Released</th><th>Detention</th><th>Demurrage</th><th>Wagons</th></tr>
+      ${rakes.map(r => { const dem = Math.max(0, r.hrs - free); return `<tr><td style="text-align:left">${esc(r.rake)}<br><small class="muted">${esc([r.consignor, r.from].filter(Boolean).join(' · '))}</small></td><td>${esc(r.plant)}</td>
+        <td>${esc(r.placed)}${r.placed_src === 'fois' ? '' : ' <small class="muted">seen</small>'}</td><td>${r.inside ? '<span class="muted">inside</span>' : esc(r.released)}</td>
+        <td>${hm(r.hrs)}${r.inside ? ' <small class="muted">so far</small>' : ''}</td><td class="${dem > 0 ? 'neg' : ''}">${dem > 0 ? hm(dem) : '—'}</td><td>${r.wagons ? fmt(r.wagons) : '<span class="muted">' + (b.wagons_default || 58) + '*</span>'}</td></tr>`; }).join('')}</table></div>` : spEmpty('No rake placed or released on this day.')}</div>
+  <div class="card"><h2>Unloading · last ${week.length} days <span class="more muted" style="font-weight:500;font-size:11.5px">${plants.join(' + ')}</span></h2><div style="overflow-x:auto"><table class="dt num">
+    <tr><th>Date</th><th>Recd</th><th>Rel.</th><th>Bal.</th><th>Wagons</th><th>Demurrage<br><small>wagon-h</small></th><th>Charge<br><small>₹ est.</small></th></tr>
+    ${week.map(d => { const r = A.days.filter(x => x.date === d && plants.includes(x.plant)), t = k => r.reduce((a, x) => a + (x[k] || 0), 0);
+      return `<tr data-sact="uday" data-sarg="${d}" style="cursor:pointer"><td>${spDay(d)}</td><td>${fmt(t('received'))}</td><td>${fmt(t('released'))}</td><td>${fmt(t('balance'))}</td><td>${fmt(t('wagons'))}</td><td class="${t('dem_wagon_hrs') > 0 ? 'neg' : ''}">${fmt(t('dem_wagon_hrs'), 1)}</td><td>${fmt(t('dem_charge'))}</td></tr>`; }).join('')}</table></div></div>`;
+}
+/** Before FOIS tracking (or an older service): the figures typed in the form. */
+function sUnloadEntered() {
   const plants = SP.data.unloading_plants, dates = [...new Set(spUnload().map(r => r.date))].sort();
   const date = dates[dates.length - 1];
-  if (!date) return `<div class="card"><h2>Rake unloading status</h2>${spEmpty('No rake unloading status has been entered yet.')}</div>`;
+  if (!date) return `<div class="card"><h2>Rake unloading status</h2>${spEmpty('No FOIS rake data has been shared yet, and nothing has been entered.')}</div>`;
   const row = p => spOn(spUnload(), date).find(r => r.plant === p) || {};
-  const line = (label, k, d = 0, total = true) => `<tr><td>${label}</td>${plants.map(p => `<td>${row(p)[k] === undefined || row(p)[k] === null ? '—' : fmt(row(p)[k], d)}</td>`).join('')}<td>${total ? fmt(plants.reduce((t, p) => t + (row(p)[k] || 0), 0), d) : ''}</td></tr>`;
-  return `<div class="card"><h2>Rake unloading status <span class="more muted" style="font-weight:500;font-size:11.5px">${spDate(date)}</span></h2><div style="overflow-x:auto"><table class="dt num">
-    <tr><th>Metric</th>${plants.map(p => `<th>${p}</th>`).join('')}<th>GSECL</th></tr>
-    ${line('Pre. day balance (nos)', 'pre_day_bal')}${line('Received (nos)', 'received')}${line('Released (nos)', 'released')}${line('Balance (nos)', 'balance')}
-    <tr><td>Demurrage (hh:mm:ss)</td>${plants.map(p => `<td>${row(p).dem_hrs === undefined || row(p).dem_hrs === null ? '—' : spHms(row(p).dem_hrs)}</td>`).join('')}<td>${spHms(plants.reduce((t, p) => t + (row(p).dem_hrs || 0), 0))}</td></tr>${line('Wagons placed (nos)', 'wagons')}${line('Wagon / hr', 'wagon_hr', 2)}
-    <tr><td>Detention time</td>${plants.map(p => `<td>${esc(row(p).detention_time || '—')}</td>`).join('')}<td></td></tr></table></div></div>`;
+  const line = (label, k, d = 0) => `<tr><td>${label}</td>${plants.map(p => `<td>${row(p)[k] === undefined || row(p)[k] === null ? '—' : fmt(row(p)[k], d)}</td>`).join('')}</tr>`;
+  return `<div class="card"><h2>Rake unloading status <span class="more muted" style="font-weight:500;font-size:11.5px">entered · ${spDate(date)}</span></h2><div style="overflow-x:auto"><table class="dt num">
+    <tr><th>Metric</th>${plants.map(p => `<th>${p}</th>`).join('')}</tr>${line('Pre. day balance (nos)', 'pre_day_bal')}${line('Received (nos)', 'received')}${line('Released (nos)', 'released')}${line('Balance (nos)', 'balance')}
+    <tr><td>Demurrage (hh:mm:ss)</td>${plants.map(p => `<td>${row(p).dem_hrs === undefined || row(p).dem_hrs === null ? '—' : spHms(row(p).dem_hrs)}</td>`).join('')}</tr></table></div></div>`;
 }
 
 /** The railway side of the portal dashboard: pipeline summary and the 5-day forecast. */
@@ -460,6 +518,9 @@ function spStart(kind, date, plant) {
   const cur = rows.find(r => r.date === date && r.plant === plant), prev = plant ? spPrevOf(rows, plant, date) : null;
   if (cur) return {...cur, existing: true};
   if (kind === 'stock') return {date, plant, prev_stock: prev?.end_stock ?? '', max_capacity_mt: prev?.max_capacity_mt ?? '', max_capacity_days: prev?.max_capacity_days ?? '', carried: !!prev};
+  const a = spAuto().days.find(r => r.date === date && r.plant === plant);
+  if (a) return {date, plant, pre_day_bal: a.pre_day_bal, received: a.received, released: a.released, balance: a.balance, wagons: a.wagons, dem_hrs: a.dem_hrs,
+    wagon_hr: Math.round(a.wagons / 24 * 10000) / 10000, detention_time: spHms(a.detention_hrs || 0), fois: true};
   return {date, plant, pre_day_bal: prev?.balance ?? '', detention_time: '', carried: !!prev};
 }
 
@@ -475,12 +536,14 @@ function sTabEntry() {
   const val = k => (k === 'max_capacity_mt' && master.max_capacity_mt) || (k === 'max_capacity_days' && master.max_capacity_days) || (v[k] === null || v[k] === undefined ? '' : v[k]);
   const num = ([k, label, step]) => { const auto = /Auto-calc/.test(label) || fixed(k); return `<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px">${esc(label.replace(' (Auto-calc)', ''))}${auto ? ' <span style="color:var(--accent)">(auto-calc)</span>' : ''}
     <input class="search" id="sp_${k}" type="number" inputmode="decimal" step="${step}" min="0" value="${esc(val(k))}" placeholder="${step === '1' ? '0' : (0).toFixed(step.length - 2)}" ${k === 'balance' || k === 'wagon_hr' || fixed(k) ? 'readonly' : ''} style="margin:4px 0 0">${fixed(k) ? `<span style="display:block;margin-top:2px">${k === 'availability_days' ? 'End stock ÷ ' + fmt(master.mt_per_day, 1) + ' MT/day (' + fmt(master.capacity_mw) + ' MW × 24 h × ' + fmt(master.plf * 100) + '% PLF × ' + master.coal_kg_per_kwh + ' kg/kWh)' : 'Fixed for this station'}</span>` : ''}</label>`; };
-  const fields = kind === 'stock' ? SP_STOCK_FIELDS : SP_UNLOAD_FIELDS;
+  const lig = kind === 'stock' && master.fuel === 'Lignite';
+  const fields = (kind === 'stock' ? SP_STOCK_FIELDS : SP_UNLOAD_FIELDS).map(f => (lig ? [f[0], f[1].replace('Coal ', 'Lignite ') + (/^max_capacity/.test(f[0]) ? ' (optional)' : ''), f[2]] : f));
   const cant = lock && !plants.includes(lock);
-  let h = `<div class="seg two" style="margin-bottom:10px;padding:3px"><button class="${kind === 'stock' ? 'on' : ''}" data-sact="form" data-sarg="stock" style="padding:8px">Coal stock position</button><button class="${kind === 'unload' ? 'on' : ''}" data-sact="form" data-sarg="unload" style="padding:8px">Rake unloading status</button></div>`
+  let h = `<div class="seg two" style="margin-bottom:10px;padding:3px"><button class="${kind === 'stock' ? 'on' : ''}" data-sact="form" data-sarg="stock" style="padding:8px">Coal / lignite stock</button><button class="${kind === 'unload' ? 'on' : ''}" data-sact="form" data-sarg="unload" style="padding:8px">Rake unloading status</button></div>`
     + spMsg() + spSyncLine();
   if (cant) return h + `<div class="card">${spEmpty(`Rake unloading status is entered for ${plants.join(', ')} only; your station is ${lock}.`)}</div>`;
-  h += `<div class="card"><h2>${kind === 'stock' ? 'Coal Stock Position Form' : 'Rake Unloading Status Form'}</h2>
+  h += `<div class="card"><h2>${kind === 'stock' ? (lig ? 'Lignite Stock Position Form' : 'Coal / Lignite Stock Position Form') : 'Rake Unloading Status Form'}</h2>
+    ${kind === 'unload' && v.fois && !v.existing ? '<div class="note-src" style="margin-bottom:6px">Opened with the figures worked out from FOIS for this day; correct them if needed and save.</div>' : ''}
     <label style="display:block;font-size:12px;color:var(--muted)">Select Date<input class="search" id="sp_date" type="date" value="${esc(v.date)}" max="${spIso()}" style="margin:4px 0 0"></label>
     <label style="display:block;font-size:12px;color:var(--muted);margin-top:10px">Power Plant<select class="search" id="sp_plant" ${lock ? 'disabled' : ''} style="margin:4px 0 0"><option value="">-- Select Plant --</option>${plants.map(p => `<option value="${p}" ${v.plant === p ? 'selected' : ''}>${p} (${SP_NAME[p]})</option>`).join('')}</select></label>
     <div class="note-src" id="sp_state" style="margin-top:6px">${v.existing ? 'An entry already exists for this date and plant; saving will replace it.' : v.carried ? 'Opening figures are carried forward from the previous entry of this plant.' : ''}</div>
@@ -538,7 +601,8 @@ async function spSave() {
   SP.edit[kind] = {...SP.edit[kind], ...v, ...(v.dem_text ? {dem_hrs: v.dem_hrs === '' ? v.dem_text : v.dem_hrs} : {})};
   delete v.dem_text;
   SP.note = '';
-  const need = kind === 'stock' ? ['prev_stock', 'receipt', 'consumption', 'availability_days', 'max_capacity_mt', 'max_capacity_days'].filter(k => $('sp_' + k) && !$('sp_' + k).readOnly) : ['pre_day_bal', 'received', 'released', 'dem_hrs', 'wagons'];
+  const ligSave = kind === 'stock' && spLignite(v.plant);
+  const need = kind === 'stock' ? ['prev_stock', 'receipt', 'consumption', 'availability_days', 'max_capacity_mt', 'max_capacity_days'].filter(k => $('sp_' + k) && !$('sp_' + k).readOnly && !(ligSave && /^max_capacity/.test(k))) : ['pre_day_bal', 'received', 'released', 'dem_hrs', 'wagons'];
   SP.error = !v.date ? 'Choose the date.' : !v.plant ? 'Choose the power plant.'
     : kind === 'unload' && v.dem_hrs === '' ? 'Demurrage must be hours:minutes:seconds with minutes and seconds under 60, for example 02:30:00.'
     : need.some(k => v[k] === '') ? 'Fill in every figure (enter 0 where there is none).'
@@ -575,6 +639,7 @@ document.addEventListener('click', e => {
     }
     case 'range': SP.range = +arg; return kRender();
     case 'form': SP.form = arg; SP.error = ''; SP.note = ''; return kRender();
+    case 'uday': SP.udate = arg; return kRender();
     case 'clear': SP.edit[SP.form] = null; SP.error = ''; SP.note = ''; return kRender();
     case 'edit': { const [d, p] = arg.split('|'); SP.edit[SP.form] = spStart(SP.form, d, p); SP.error = ''; SP.note = ''; kRender(); return window.scrollTo({top: 0}); }
     case 'save': return spSave();

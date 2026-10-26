@@ -113,6 +113,8 @@ const MERIT_BUILTIN = {
 
 /** Revision of 19.10.2026 (SLDC file MOSLDC20261020160246.pdf), read with parseMeritLines. */
 const MERIT_BUILTIN_2 = {
+  // every generator of SLDC's list, [rank, name, Rs/kWh (null = NA), remark] (Gujarat Power shows them all)
+  all: [[1, "SARDAR SAROVAR PROJECT", 2.05, "Share Compulsory,at GETCO peri."], [2, "KAKRAPAR APS", 2.29, "Share Compulsory,at GETCO peri."], [3, "TARAPUR APS - 1 & 2", 2.416, "Share Compulsory,at GETCO peri."], [4, "TARAPUR APS- 3 & 4", 3.646, "Share Compulsory,at GETCO peri."], [5, "KAKRAPAR EXT.", 4.4, "Share Compulsory,at GETCO peri."], [6, "ACB India Ltd", 0.849, "At GETCO peri."], [7, "KORBA- III", 1.357, "At GETCO peri."], [8, "KORBA -I & II", 1.384, "At GETCO peri."], [9, "SIPAT-1", 1.425, "At GETCO peri."], [10, "SIPAT-2", 1.43, "At GETCO peri."], [11, "Lara STPS", 1.623, "At GETCO peri."], [12, "D B Power Limited", 1.65, "At GETCO peri."], [13, "VINDHYACHAL - STAGE 4", 2.167, "At GETCO peri."], [14, "VINDHYACHAL - STAGE 3", 2.182, "At GETCO peri."], [15, "VINDHYACHAL - STAGE 5", 2.195, "At GETCO peri."], [16, "VINDHYACHAL - STAGE 2", 2.207, "At GETCO peri."], [17, "VINDHYACHAL - STAGE 1", 2.285, "At GETCO peri."], [18, "AKRIMOTA", 2.83, ""], [19, "Mauda STPS II", 2.931, "At GETCO peri."], [20, "Mauda STPS I", 2.938, "At GETCO peri."], [21, "Nabinagar", 3.054, "At GETCO peri."], [22, "KAHALGAON 2", 3.1, "At GETCO peri."], [23, "Barh-I", 3.169, "At GETCO peri."], [24, "KHARGAON STPS", 3.248, "At GETCO peri."], [25, "GADARWARA STPS", 3.348, "At GETCO peri."], [26, "GIPCL -MANGROL LIGNITE SLPP", 3.63, ""], [27, "GIPCL -MANGROL LIGNITE SLPP Expansion", 3.63, ""], [28, "Farakka-3", 3.656, "At GETCO peri."], [29, "Farakka-1", 3.749, "At GETCO peri."], [30, "FG UnchaHAR -I", 3.977, "At GETCO peri."], [31, "BLTPS 1 & 2", 4.33, ""], [32, "WANAKBORI TPS- 8", 4.58, ""], [33, "UKAI - TPS- 6", 4.72, ""], [34, "Dadri-I", 4.754, "At GETCO peri."], [35, "KLTPS 3", 4.8, ""], [36, "KLTPS 4", 4.82, ""], [37, "Solapur TPS", 4.843, "At GETCO peri."], [38, "WANAKBORI TPS- 3", 5.16, ""], [39, "UKAI - TPS- 4", 5.2, ""], [40, "CGPL Mundra UMPP", 5.476, "At GETCO peri."], [41, "GANDHINAGAR TPS ( UNIT NO 5)", 5.6, ""], [42, "WANAKBORI TPS ( UNIT NO 7)", 5.68, ""], [43, "WANAKBORI TPS ( UNIT NO 1,2,4 ,5 & 6 )", 5.68, ""], [44, "GANDHINAGAR TPS ( UNIT NO 3,4 )", 5.8, ""], [45, "APL- II (Adani Power Limited(Mundra) Unit-5-6)", 5.9, ""], [46, "APL- II (Adani Power Limited(Mundra) Unit-5-6 (200MW))", 5.91, ""], [47, "EPGL (Essar Power Gujarat LTD.)", 5.953, ""], [48, "UKAI - TPS 3 & 5", 5.97, ""], [49, "APL-I (Adani Power Limited(Mundra) Unit-1-4 )", 6.28, ""], [50, "APL-I (Adani Power Limited(Mundra) Unit-1-4 (200 MW)", 6.29, ""], [51, "JAHNOR-JGPS APM", 7.246, "At GETCO peri."], [52, "KAWAS GAS APM", 7.277, "At GETCO peri."], [53, "JAHNOR-JGPS NON APM", 7.391, "At GETCO peri."], [54, "KAWAS GAS NON APM", 7.422, "At GETCO peri."], [55, "SIKKA 3-4", 9.45, ""], [56, "GPPC (HIGH SEAS)", 10.69, ""], [57, "Utran-II on (HIGH SEAS)", 12.05, ""], [58, "Dhuvaran CCPP-III (HIGH SEAS)", 12.52, ""], [59, "Dhuvaran CCPP- II (HIGH SEAS)", 14.0, ""], [60, "Jhanor RLNG (GAS)", 21.401, "At GETCO peri."], [61, "KAWAS RLNG (GAS)", 21.507, "At GETCO peri."], [62, "JAHNOR-JGPS Comm", 25.887, "At GETCO peri."], [63, "Dhuvaran CCPP-III (GSPC Spot Gas)", 26.61, ""], [64, "Utran-II on (GSPC Spot Gas)", 26.61, ""], [65, "GSEG, Expansion (GSPC Spot Gas)", 26.35, ""], [66, "GPPC (GSPC Spot Gas)", 26.35, ""], [67, "KAWAS GAS Comm", 26.78, "At GETCO peri."], [68, "KAWAS-KGPS (ON Liquid.)", 29.333, "At GETCO peri."], [69, "Dhuvaran CCPP- II (GSPC Spot Gas)", 30.68, ""], [70, "GSEG Expansion on High Sea Gas", null, "No High sea Gas Available"]],
   asOf: '19.10.2026', fileDate: '19102026', stamp: '20261020160246', file: 'MOSLDC20261020160246.pdf', total: 70,
   url: 'https://www.sldcguj.com/Realtimedata/MOSLDC20261020160246.pdf',
   blocks: {"BLTPS":[[4.33,31]],"WTPS8":[[4.58,32]],"UTPS6":[[4.72,33]],"KLTPS1-3":[[4.8,35,"KLTPS 3"]],"KLTPS4":[[4.82,36]],"WTPS_3":[[5.16,38]],"UTPS_4":[[5.2,39]],"GTPS5":[[5.6,41]],"WTPS_7":[[5.68,42]],"WTPS_12456":[[5.68,43]],"GTPS34":[[5.8,44]],"UTPS_35":[[5.97,48]],"STPS_3_4":[[9.45,55]],"UGBPS_2":[[12.05,57,"High-seas gas"],[26.61,64,"GSPC spot gas"]],"DGBPS_3":[[12.52,58,"High-seas gas"],[26.61,63,"GSPC spot gas"]],"DGBPS_2":[[14,59,"High-seas gas"],[30.68,69,"GSPC spot gas"]]},
@@ -524,7 +526,7 @@ async function sldcOutages() {
   const latest = latestOutages(all);
   // allRows: one row per unit; rows/match/synced are worked out again whenever the feed changes (applyOutageSync).
   return {ok: true, source: SLDC_URL, fetched_at: nowText(), as_of: parsed.as_of, allRows: latest, rows: latest, match: matchOutages(latest), synced: [],
-    duplicates: all.length - latest.length};
+    duplicates: all.length - latest.length, all_rows: latestOutages(parsed.rows)};   // all_rows: every sector (Gujarat Power)
 }
 
 // ---------------------------------------------------------------- IEX prices (RTM / DAM, 15-min blocks)
@@ -603,7 +605,7 @@ async function sldcMeritCheck() {
     if (!stamp && hist.some(same)) return {ok: true, url, date, added: false, count: hist.length};
     const d = date.replace(/\D/g, '');
     hist.push({fileDate: d.length === 8 ? d : stamp.slice(6, 8) + stamp.slice(4, 6) + stamp.slice(0, 4), stamp: stamp || '', file,
-      asOf: date, total: parsed.total, url, blocks: parsed.blocks, fetchedAt: nowText(), source: 'SLDC PDF'});
+      asOf: date, total: parsed.total, url, blocks: parsed.blocks, all: parsed.all, fetchedAt: nowText(), source: 'SLDC PDF'});
     Native.storeSet('merit_history', JSON.stringify(hist));
     refreshMerit();
     return {ok: true, url, date, added: true, count: hist.length};
@@ -675,7 +677,7 @@ const MERIT_PATTERNS = [
 
 /** Rows "rank  NAME ...  cost  remarks" -> {blocks: {key: [[cost, rank, note?]]}, total, asOf}. */
 function parseMeritLines(lines) {
-  const blocks = {};
+  const blocks = {}, all = [];
   let total = 0, asOf = null;
   const joined = [];
   for (const raw of lines) {
@@ -692,13 +694,14 @@ function parseMeritLines(lines) {
     if (!m) continue;
     const rank = +m[1], name = m[2].toUpperCase(), cost = m[3].toUpperCase() === 'NA' ? null : +m[3];
     total = Math.max(total, rank);
+    all.push([rank, m[2].trim(), cost, line.slice(m[0].length).trim()]);
     const p = MERIT_PATTERNS.find(([re]) => re.test(name));
     if (!p || cost === null) continue;
     const [, key, note] = p;
     (blocks[key] = blocks[key] || []).push(note ? [cost, rank, note] : [cost, rank]);
   }
   for (const k of Object.keys(blocks)) blocks[k].sort((a, b) => a[0] - b[0]);
-  return {blocks, total, asOf};
+  return {blocks, total, asOf, all};
 }
 
 /** pdf.js text items -> lines, grouping items on the same baseline (within 5 pt; rows are ~12.7 pt apart and some values sit ~3.4 pt low) left to right. */

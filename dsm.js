@@ -335,6 +335,9 @@ function dTabSolar() {
  * generation and schedule the app sends every 10 minutes, block by block, at the block's IEX market price
  * (CERC DSM Regulations 2024 link the deviation rate to the market price). Not the official account.
  */
+/** "SLDC schedule Rev 107 · read 24 Oct 23:40" for a day's estimate (latest revision SLDC had when read). */
+const dRev = v => v && v.v ? `SLDC schedule Rev ${v.v} · read ${new Date(v.at).toLocaleString('en-IN', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false})}` : '';
+
 async function dEstLoad(force) {
   if (D.estBusy || (!force && D.est && Date.now() - D.estAt < 10 * 60e3) || typeof conCall !== 'function' || !hasConnect()) return;
   D.estBusy = true; D.estErr = ''; dsmRender();
@@ -356,8 +359,8 @@ function dTabEst() {
   return dSummary(`DSM estimate · ${dDate(day.date)}`, day.priced ? day.net : null, [
       ['Under-injection', fmt(day.under, 1) + ' MWh', 'charged'], ['Over-injection', fmt(day.over, 1) + ' MWh', 'paid'],
       ['Blocks with data', day.blocks + ' / 96', day.priced + ' priced'], ['Frequency', day.freqMin ? fmt(day.freqMin, 2) + '–' + fmt(day.freqMax, 2) + ' Hz' : '—', day.freqLow !== null && day.freqLow !== undefined ? Math.round(day.freqLow * 100) + '% below 49.90' : '']],
-      `Last ${days.length} day(s): ${dNetTxt(totNet)} (estimate)`, {pay: day.pay, rec: day.rec})
-    + `<div class="chips">${days.map(d => `<button class="chip ${d.date === day.date ? 'on' : ''}" data-dact="estday" data-darg="${d.date}">${dDay(d.date)}</button>`).join('')}</div>`
+      `${day.sldc_ver ? dRev(day.sldc_ver) + ' (latest; re-read after midnight)' : 'SLDC schedule revision: not read yet'} · last ${days.length} day(s): ${dNetTxt(totNet)} (estimate)`, {pay: day.pay, rec: day.rec})
+    + `<div class="chips">${days.map(d => `<button class="chip ${d.date === day.date ? 'on' : ''}" data-dact="estday" data-darg="${d.date}">${dDay(d.date)}${d.sldc_ver && d.sldc_ver.v ? ` <small style="opacity:.75">R${d.sldc_ver.v}</small>` : ''}</button>`).join('')}</div>`
     + dChart('Estimated net DSM by day (CERC DSM Regulations 2024)', pts, 'estimate', {cum: false})
     + (D.estGroup ? dEstBlocksHtml(day) : '')
     + `<div class="card"><h2>PPA groups · ${dDate(day.date)} <span class="more" data-dact="estref" style="cursor:pointer">Refresh</span></h2>${list.map((x, i) => `<div class="srow drow" data-dact="estgrp" data-darg="${esc(x.name)}" style="cursor:pointer">
@@ -379,7 +382,7 @@ async function dEstBlocks(group) {
 }
 function dEstBlocksHtml(day) {
   const x = D.estBlk, rs = v => v === null || v === undefined ? '—' : (v < 0 ? '−' : '') + '₹' + fmt(Math.abs(v), 0);
-  const head = `<h2>${esc(D.estGroup)} · ${dDate(day.date)} <span class="more" data-dact="estgrpx" style="cursor:pointer">Close</span></h2>`;
+  const head = `<h2>${esc(D.estGroup)} · ${dDate(day.date)} <span class="more" data-dact="estgrpx" style="cursor:pointer">Close</span></h2>${day.sldc_ver ? `<div class="vals" style="margin:-4px 0 8px">${esc(dRev(day.sldc_ver))}</div>` : ''}`;
   if (!x) return `<div class="card" id="estBlk">${head}${D.estBlkErr ? `<div class="alert err">${esc(D.estBlkErr)}</div>` : '<div class="sk" style="height:140px"></div>'}</div>`;
   const rows = x.detail || [];
   return `<div class="card" id="estBlk">${head}

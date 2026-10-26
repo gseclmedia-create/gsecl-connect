@@ -308,7 +308,7 @@ function wDevReq() {
 // ---------------------------------------------------------------- login activity
 
 const W_EV = [['', 'All'], ['in', 'Sign-ins'], ['bad', 'Refused / wrong'], ['dev', 'Phone & password']];
-const wEvKind = ev => /^(Signed in|Registered|Forgot|Password accepted)/.test(ev) ? 'in' : /^(Refused|Wrong|Locked)/.test(ev) ? 'bad' : 'dev';
+const wEvKind = ev => /^(Signed in|Registered|Forgot|Password accepted)/.test(ev) ? 'in' : /^(Refused|Wrong|Locked|Device blocked|Sheet access removed|Access blocked)/.test(ev) ? 'bad' : 'dev';
 const wEvCol = {in: 'var(--run)', bad: 'var(--forced)', dev: 'var(--rsd)'};
 
 /** Live now, today and the last 14 days, the people seen in the last 24 hours, and the sign-in log. */
@@ -331,7 +331,21 @@ function wActivity() {
       <span class="vals num">${r.mins < 1 ? 'now' : r.mins < 60 ? r.mins + ' min ago' : esc(r.at.slice(11))}</span></div>
     <div class="vals">${esc([r.emp_no, r.designation, r.station, r.device && '📱 ' + r.device].filter(Boolean).join(' · '))}</div></div>`;
   const labels = d.days.map(x => conDate(x.date).replace(/ \d{4}$/, ''));
-  return `<div class="card"><h2>Right now ${conMore('live = used the app in the last ' + d.live_minutes + ' min')}</h2>
+  const blk = d.blocked_devices || [], al = d.security_alerts || [];
+  const security = `<div class="card"><h2>Security ${conMore(blk.length ? blk.length + ' device' + (blk.length > 1 ? 's' : '') + ' blocked' : 'no device blocked')}</h2>
+      <div class="vals" style="font-size:12.5px;margin-bottom:6px">A device that is refused ${'5'} times within an hour (unknown employee numbers, wrong passwords, forged sign-ins) and was never used by an employee is blocked at once; anyone added to the Google Sheet or its Drive folders is removed within 15 minutes. Super administrators get an e-mail.</div>
+      ${blk.map(b => `<div class="srow" style="cursor:default"><div class="top"><span class="nm">⛔ ${esc(b.name || 'device')} <span class="muted" style="font-weight:400">${esc(b.id)}</span></span><span class="vals">${d.can_unblock ? `<button class="btn" data-wact="unblkdev" data-warg="${esc(b.id)}" style="margin:0;padding:4px 10px;color:var(--accent)">Unblock</button>` : ''}</span></div>
+        <div class="vals">${esc(conDate(b.at))} ${esc(String(b.at).slice(11, 16))} · ${esc(b.why || '')}</div></div>`).join('')}
+      ${al.length ? `<div class="vals" style="margin-top:8px"><b>Recent alerts</b></div>${al.slice(0, 10).map(a => `<div class="nrow" style="cursor:default"><span class="sd" style="background:var(--forced)"></span><div class="nb"><div class="nt">${esc(conDate(a.at))} ${esc(String(a.at).slice(11, 16))} UTC · ${esc(a.text)}</div></div></div>`).join('')}` : '<div class="vals">No security alerts.</div>'}</div>`;
+  // app and version on every phone (the service refuses versions older than the newest published one)
+  const av = d.app_versions || [], vk = r => (r.app === 'gujarat' ? 'Gujarat Power' : r.app === 'web' ? 'Web' : 'GSECL Connect') + ' ' + r.version;
+  const vcount = {}; av.forEach(r => { vcount[vk(r)] = (vcount[vk(r)] || 0) + 1; });
+  const versions = av.length ? `<div class="card"><h2>App versions in use ${conMore(av.length + ' phones / browsers')}</h2>
+      <div class="vals" style="font-size:12.5px;margin-bottom:6px">Each phone's app and version, from its requests. Versions older than the newest published APK are refused and shown the download page.</div>
+      ${Object.entries(vcount).sort((x, y) => y[1] - x[1]).map(([k, n]) => `<div class="srow" style="cursor:default"><div class="top"><span class="nm">${esc(k)}</span><span class="vals num">${n}</span></div></div>`).join('')}
+      <details style="margin-top:6px"><summary class="vals">Every phone</summary>${av.slice(0, 200).map(r => `<div class="srow" style="cursor:default"><div class="top"><span class="nm">${esc(r.name || r.emp_no)} <span class="muted" style="font-weight:400">${esc(r.emp_no)}</span></span><span class="vals">${esc(vk(r))}</span></div>
+        <div class="vals">${esc(r.device || 'browser')} · last used ${esc(r.last_seen ? new Date(r.last_seen).toLocaleString('en-IN', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false}) : '—')}</div></div>`).join('')}</details></div>` : '';
+  return security + versions + `<div class="card"><h2>Right now ${conMore('live = used the app in the last ' + d.live_minutes + ' min')}</h2>
       <div class="tstats" style="grid-template-columns:repeat(2,1fr)">
         <div><span>Live now</span><b class="num pos">${fmt(d.live_count)}</b><small>employees</small></div>
         <div><span>Used today</span><b class="num">${fmt(d.today_count)}</b><small>different employees</small></div>
@@ -520,6 +534,12 @@ document.addEventListener('click', async e => {
       const r = await conCall('block_employee', {emp_no: arg, block, reason: reason.trim()});
       if (!r.ok) return alert(/unknown action/i.test(r.error) ? 'Update the GSECL Connect script in the Google Sheet (paste the new Code.gs and deploy a new version) to use blocking.' : r.error);
       alert(r.data.message); W.form = null; return wOpen('admin', true);
+    }
+    case 'unblkdev': {
+      if (!confirm('Unblock this device? It can try to sign in to GSECL Connect again.')) return;
+      const r = await conCall('unblock_device', {id: arg});
+      if (!r.ok) return alert(r.error);
+      alert(r.data.message); return wOpen('activity', true);
     }
     case 'reldev': {
       if (!confirm(`Release the registered phone of employee ${arg}? They are signed out there and can sign in on a new phone.`)) return;

@@ -61,7 +61,9 @@ function wPafAfc() {
   const reasons = d.rows.filter(r => r.remarks || (d.can_edit && r.daily !== null && r.daily < r.target_paf));
   const miss = d.missing_days || [], few = d.rows.filter(r => r.afc && !r.ytd_complete);
   const warn = few.length ? `<div class="alert" style="background:#fff7ed;border-color:#fed7aa;color:#9a3412"><span>⚠</span><span><b>Past daily PAF not loaded yet.</b> YTD now covers ${Math.min(...few.map(r => r.days_ytd))} of ${d.days_elapsed} days for ${few.length} group${few.length > 1 ? 's' : ''}, so AFC actual, loss and asking rate are not worked out (they would be misleading). Paste the daily PAF from 01.04 in the Sheet tab PafImport and run the menu "Merge past PAF".</span></div>` : '';
+  const rv = v => v && v.v ? `Rev ${v.v} (read ${new Date(v.at).toLocaleString('en-IN', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false})})` : '—';
   return ctl + warn + `<div class="card"><h2>GSECL AFC recovery status · ${conDate(d.date)}</h2>
+      ${d.sldc_ver || d.sldc_ver_prev ? `<div class="vals" style="margin:-4px 0 8px">SLDC DC / SG schedule: this day ${esc(rv(d.sldc_ver))} · previous day ${esc(rv(d.sldc_ver_prev))} · latest revisions, re-read after midnight</div>` : ''}
       <div class="tstats" style="grid-template-columns:repeat(4,1fr)"><div><span>PAF YTD</span><b class="num ${g.ytd < g.target_paf ? 'neg' : 'pos'}">${pfPc(g.ytd)}</b><small>target ${pfPc(g.target_paf)}</small></div>
         <div><span>PAF MTD / day</span><b class="num">${pfPc(g.mtd)}</b><small>day ${pfPc(g.daily)}</small></div>
         <div><span>AFC to date</span><b class="num">${g.afc_actual === null || g.afc_actual === undefined ? '—' : '₹' + pfCr(g.afc_actual) + ' Cr'}</b><small>of ₹${pfCr(g.afc_target)} Cr</small></div>

@@ -80,12 +80,21 @@
 
   // ---------------------------------------------------------------- the service
   const OWN_RECORD = ['me', 'home', 'update_profile', 'upload_photo', 'totp_confirm', 'totp_disable'];
+  /** An out-of-date copy (the service answered 426): the offline cache is dropped and the page loaded again, once a minute at most. */
+  async function freshCopy() {
+    if (Date.now() - (Number(LS.get('gsecl_fresh_at')) || 0) < 60000) return;
+    LS.set('gsecl_fresh_at', String(Date.now()));
+    try { const regs = await navigator.serviceWorker?.getRegistrations?.(); await Promise.all((regs || []).map(r => r.unregister())); } catch (e) { /* none */ }
+    try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch (e) { /* none */ }
+    location.reload();
+  }
   async function api(action, params) {
     const url = CFG.scriptUrl;
     if (!url) return { ok: false, data: null, error: 'This copy of the web app is not configured (config.js).', code: 0 };
     const body = Object.assign({}, params || {}, { action });
     if (Session.token) body.token = Session.token;
     body.device_id = deviceId; body.device_name = deviceName;
+    body.app_kind = 'web'; body.app_ver = CFG.version || '';   // the service can refuse an out-of-date copy and lists the versions in use
     let j;
     try {
       const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 90000);
@@ -104,6 +113,7 @@
     const code = Number(j.code) || 0;
     if (code === 401 && action !== 'login' && Session.token) { Session.reason = j.error || ''; Session.signOut(false); setTimeout(() => location.reload(), 50); }
     if (code === 428 && Session.token) { Session.otpExpired(); setTimeout(() => location.reload(), 50); }
+    if (code === 426) freshCopy();
     return { ok: false, data: null, error: j.error || 'Something went wrong', code };
   }
 

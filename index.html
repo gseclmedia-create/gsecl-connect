@@ -401,6 +401,13 @@
   nav.bn button.on { color: var(--accent); background: var(--brandsoft); }
   nav.bn button.on::before { top: -7px; width: 34px; background: linear-gradient(90deg, var(--brand), var(--brand2)); }
   /* DSM: summary banner, split bar, two-sided station bars */
+  .gj-mode #genTabs { display: none !important; }
+  .lfg { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-top: 12px; }
+  .lfg-c svg { width: 100%; height: auto; display: block; }
+  .lfg-k, .lfg-l { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; opacity: .85; margin-top: 4px; }
+  .lfg-k i, .lfg-l i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+  .lfg-d { width: 150px; } .lfg-d svg { width: 120px; height: 120px; display: block; margin: 0 auto; } .lfg-l { flex-direction: column; gap: 2px; }
+  @media (max-width: 520px) { .lfg { grid-template-columns: 1fr; } .lfg-d { width: auto; display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center; } .lfg-d svg { width: 110px; height: 110px; } }
   .dhero { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Ccircle cx='120' cy='0' r='90' fill='none' stroke='%23fff' stroke-opacity='.08' stroke-width='18'/%3E%3C/svg%3E") right top no-repeat, linear-gradient(135deg, var(--h1, #2b1055) 0%, var(--h2, #5b1d6e) 60%, var(--h3, #8e3291) 100%);
            color: #fff; border-radius: var(--radius); padding: 15px 15px 13px; margin-bottom: 12px; box-shadow: 0 8px 22px rgba(91, 29, 110, .25); }
   .dhero .t { font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; opacity: .9; }
@@ -576,6 +583,8 @@
 
   <!-- ================= Grid (Gujarat catered) ================= -->
   <section class="view" id="v-grid">
+    <!-- Management summary and tomorrow's load forecast: loadfc.js -->
+    <div class="dhero" id="gujHero"><div class="sk" style="height:220px;border-radius:14px"></div></div>
     <div class="card">
       <h2>Gujarat generation <span class="more muted" id="gujTime" style="font-weight:500;font-size:11.5px"></span></h2>
       <div class="tstats three num" id="gujStats"></div>
@@ -584,6 +593,8 @@
       <div id="discoms"></div>
     </div>
 
+    <div class="card" id="loadFc"><h2>Tomorrow's load forecast · Gujarat catered</h2><div class="sk" style="height:220px"></div></div>
+    <div class="card" id="gujDays"><h2>Gujarat demand · last 14 days</h2><div class="sk" style="height:200px"></div></div>
     <div class="card">
       <h2>Trends <span class="more muted" id="trendNote" style="font-weight:500;font-size:11.5px"></span></h2>
       <div class="chips" id="trendMetric" style="padding-bottom:6px"><button class="chip on" data-metric="freq">Frequency</button><button class="chip" data-metric="catered">Guj. Catered</button><button class="chip" data-metric="gen">GSECL Gen</button><button class="chip" data-metric="mix">Thermal · Solar</button></div>
@@ -666,6 +677,12 @@
     </div>
   </section>
 
+  <!-- ================= Gujarat Power (gujarat.js; shown only in that app) ================= -->
+  <section class="view" id="v-gstn"><div id="gjStBody"></div></section>
+  <section class="view" id="v-gout"><div id="gjOutBody"></div></section>
+  <section class="view" id="v-gdis"><div id="gjDisBody"></div></section>
+  <section class="view" id="v-gmer"><div id="gjMerBody"></div></section>
+
   <!-- ================= Info ================= -->
   <section class="view" id="v-info">
     <div class="card" id="meCard"></div>
@@ -733,9 +750,10 @@
   <!-- Profile is in the top-right profile menu. -->
 </nav>
 
-<script type="text/x-app" data-src="app-inline-1.js"></script>
+<script type="text/x-app" data-src="app-main-1.js"></script>
+<script type="text/x-app" data-src="mode.js"></script>
 <script type="text/x-app" data-src="logic.js"></script>
-<script type="text/x-app" data-src="app-inline-3.js"></script>
+<script type="text/x-app" data-src="app-main-2.js"></script>
 <script type="text/x-app" data-src="dsm.js"></script>
 <script type="text/x-app" data-src="web-dsm.js"></script>
 <script type="text/x-app" data-src="connect.js"></script>
@@ -747,6 +765,8 @@
 <script type="text/x-app" data-src="plan.js"></script>
 <script type="text/x-app" data-src="paf.js"></script>
 <script type="text/x-app" data-src="trend.js"></script>
+<script type="text/x-app" data-src="loadfc.js"></script>
+<script type="text/x-app" data-src="gujarat.js"></script>
 <script type="text/x-app" data-src="safety.js"></script>
 <script type="text/x-app" data-src="coalstock.js"></script>
 <script src="config.js"></script>
