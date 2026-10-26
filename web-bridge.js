@@ -105,6 +105,7 @@
       j = JSON.parse(t);
     } catch (e) { return { ok: false, data: null, error: navigator.onLine === false ? 'No internet connection. Please check your network.' : 'The GSECL Connect service could not be reached. Try again shortly.', code: 0 }; }
     if (j.renew && action !== 'login') Session.renew(j.renew);
+    if (j.update_notice && j.update_notice.reload) freshCopy();   // an older copy of the web app: the newest is loaded
     if (j.success && j.data) {
       if (OWN_RECORD.includes(action) && j.data.user) Session.updateUser(j.data.user);
       if (action === 'batch') (j.data.results || []).forEach((x, i) => { const c = (params.calls || [])[i]; if (c && OWN_RECORD.includes(c.action) && x && x.data && x.data.user) Session.updateUser(x.data.user); });

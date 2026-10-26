@@ -1576,6 +1576,9 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What changed in this version (shown in Profile › About); the newest first. */
 const RELEASE_NOTES = [
+  ['3.15.2', '26 Oct 2026', [
+    'Coal › Map: map tiles load again (sent the way OpenStreetMap asks), and rail routes read by the Android phones are shared, so the web version also places the rakes on the map',
+    'Older app versions keep working with a reminder to update (Update now / Download page / Later); blocking is only switched on by the administrator']],
   ['3.15.1', '26 Oct 2026', [
     'Coal › Rake unloading status worked out from FOIS for every day: rakes received (inside the station) and released (left the FOIS report), balance, wagons placed, detention (placement to release), demurrage beyond the free time, wagon-hours and the demurrage charge, with every rake of the day',
     'FOIS rakes read every 2 minutes (in the background and while the coal page is open)',

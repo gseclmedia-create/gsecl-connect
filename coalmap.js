@@ -57,7 +57,7 @@ function kmAfterRender() {
   if (KM.map) KM.map.remove();
   const map = KM.map = L.map(box, {zoomControl: true, attributionControl: true, minZoom: 4, maxZoom: 14, maxBounds: [[4, 60], [40, 102]]});
   map.attributionControl.setPrefix(false);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors'}).addTo(map);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap contributors', referrerPolicy: 'strict-origin-when-cross-origin'}).addTo(map);   // OpenStreetMap's tile policy asks for the site's address
   KM.layer = L.layerGroup().addTo(map);
   if (KM.view) map.setView(KM.view.c, KM.view.z); else map.setView([22.2, 78.5], 5);
   map.on('moveend', () => { KM.view = {c: map.getCenter(), z: map.getZoom(), touched: KM.view ? KM.view.touched : false}; });

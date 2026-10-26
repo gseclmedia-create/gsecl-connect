@@ -1,6 +1,6 @@
 // GSECL Connect for the web: keeps the app's own files on the device, so it opens quickly and without a network.
 // Calls to the GSECL Connect service and data sources always go to the network (nothing of them is stored here).
-const VERSION = '3.15.1-web-b9c975162e';
+const VERSION = '3.15.2-web-0e78b07f35';
 const FILES = ["./", "app-main-1.js", "app-main-2.js", "apple-touch-icon.png", "chat.js", "coal.js", "coalmap.js", "coalstock.js", "config.js", "connect.js", "dsm.js", "gsecl_logo.png", "gujarat.js", "icon-192.png", "icon-512.png", "icon-maskable.png", "index.html", "leaflet.css", "leaflet.js", "loadfc.js", "logic.js", "manifest.webmanifest", "mode.js", "paf.js", "plan.js", "safety.js", "trend.js", "web-bridge.js", "web-dsm.js", "web-start.js", "web.css", "work.js"];
 
 self.addEventListener('install', e => {

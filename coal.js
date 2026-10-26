@@ -54,8 +54,32 @@ async function kRoute(from, to) {
   const r = await kAsk(id => Rake.route(id, from, to));
   let list = null;
   if (r.ok) { try { list = JSON.parse(r.body); } catch (e) { list = null; } }
+  if (list && list.length) kShareRoute(key, list);          // read from FOIS here: shared for the web and other phones
+  else list = await kRouteFromService(key);                 // no FOIS here (web, or not reachable): the one a phone shared
   K.routes[key] = list && list.length ? list : null;
   return K.routes[key];
+}
+/** A route read from FOIS, sent once per session to the service (route_put). */
+const kShared = new Set();
+function kShareRoute(key, list) {
+  if (kShared.has(key) || typeof conCall !== 'function') return;
+  kShared.add(key);
+  conCall('route_put', {key, stations: list}).catch(() => {});
+}
+/** Routes the phones shared (route_get), asked for together: many rakes open many routes at once. */
+const kRouteQ = {wait: [], timer: null};
+function kRouteFromService(key) {
+  if (typeof conCall !== 'function') return Promise.resolve(null);
+  return new Promise(res => {
+    kRouteQ.wait.push([key.toUpperCase(), res]);
+    clearTimeout(kRouteQ.timer);
+    kRouteQ.timer = setTimeout(async () => {
+      const wait = kRouteQ.wait; kRouteQ.wait = [];
+      const r = await conCall('route_get', {keys: [...new Set(wait.map(w => w[0]))]}).catch(() => ({ok: false}));
+      const got = r.ok && r.data ? r.data.routes || {} : {};
+      wait.forEach(([k, f]) => f(got[k] || null));
+    }, 200);
+  });
 }
 const kRouteOf = r => { const v = K.routes[(r.station_from || '') + '|' + r.station_to]; return Array.isArray(v) ? v : null; };
 
