@@ -343,7 +343,7 @@ async function dEstLoad(force) {
   D.estBusy = true; D.estErr = ''; dsmRender();
   const r = await conCall('dsm_estimate', {days: 7});
   D.estBusy = false;
-  if (r.ok) { D.est = r.data; D.estAt = Date.now(); if (!D.estDay && r.data.days.length) D.estDay = r.data.days[0].date; } else D.estErr = r.error;
+  if (r.ok) { const keep = D.est ? D.est.days.filter(d => !r.data.days.some(x => x.date === d.date)) : []; D.est = r.data; D.est.days = r.data.days.concat(keep).sort((a, b) => (a.date < b.date ? 1 : -1)); D.estAt = Date.now(); if (!D.estDay && r.data.days.length) D.estDay = r.data.days[0].date; } else D.estErr = r.error;
   if (D.tab === 'est') dsmRender();
 }
 
@@ -360,7 +360,8 @@ function dTabEst() {
       ['Under-injection', fmt(day.under, 1) + ' MWh', 'charged'], ['Over-injection', fmt(day.over, 1) + ' MWh', 'paid'],
       ['Blocks with data', day.blocks + ' / 96', day.priced + ' priced'], ['Frequency', day.freqMin ? fmt(day.freqMin, 2) + '–' + fmt(day.freqMax, 2) + ' Hz' : '—', day.freqLow !== null && day.freqLow !== undefined ? Math.round(day.freqLow * 100) + '% below 49.90' : '']],
       `${day.sldc_ver ? dRev(day.sldc_ver) + ' (latest; re-read after midnight)' : 'SLDC schedule revision: not read yet'} · last ${days.length} day(s): ${dNetTxt(totNet)} (estimate)`, {pay: day.pay, rec: day.rec})
-    + `<div class="chips">${days.map(d => `<button class="chip ${d.date === day.date ? 'on' : ''}" data-dact="estday" data-darg="${d.date}">${dDay(d.date)}${d.sldc_ver && d.sldc_ver.v ? ` <small style="opacity:.75">R${d.sldc_ver.v}</small>` : ''}</button>`).join('')}</div>`
+    + `<div class="chips">${days.map(d => `<button class="chip ${d.date === day.date ? 'on' : ''}" data-dact="estday" data-darg="${d.date}">${dDay(d.date)}${d.sldc_ver && d.sldc_ver.v ? ` <small style="opacity:.75">R${d.sldc_ver.v}</small>` : ''}</button>`).join('')}<label class="chip" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">📅<input type="date" id="estDatePick" value="${esc(day.date)}" max="${esc(new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10))}" style="border:0;background:transparent;font:inherit;color:inherit;width:8.2em"></label></div>
+      ${D.estPickBusy ? '<div class="note-src">Working out the chosen day…</div>' : ''}${D.estPickErr ? `<div class="alert err" style="margin:6px 0"><span>⚠</span><span>${esc(D.estPickErr)}</span></div>` : ''}${day.stored ? '<div class="note-src">From the stored daily DSM by group (the block readings of this day are no longer kept, so no block detail or frequency).</div>' : ''}`
     + dChart('Estimated net DSM by day (CERC DSM Regulations 2024)', pts, 'estimate', {cum: false})
     + (D.estGroup ? dEstBlocksHtml(day) : '')
     + `<div class="card"><h2>PPA groups · ${dDate(day.date)} <span class="more" data-dact="estref" style="cursor:pointer">Refresh</span></h2>${list.map((x, i) => `<div class="srow drow" data-dact="estgrp" data-darg="${esc(x.name)}" style="cursor:pointer">
@@ -369,8 +370,21 @@ function dTabEst() {
         <div class="dbi"><div class="l"><i style="width:${x.rec / max * 100}%"></i></div><div class="c"></div><div class="r"><i style="width:${x.pay / max * 100}%"></i></div></div></div>`).join('')}
       ${day.no_schedule && day.no_schedule.length ? `<div class="note-src">Not estimated (no schedule in the SLDC real-time data): ${esc(day.no_schedule.join(', '))}.</div>` : ''}
       ${csvBtn('dsmEst', 'DSM_estimate_' + day.date, ['Station', 'Under-injection MWh', 'Over-injection MWh', 'Est. payable Rs', 'Est. receivable Rs', 'Est. net Rs', 'Blocks'], list.map(x => [x.name, +x.under.toFixed(2), +x.over.toFixed(2), Math.round(x.pay), Math.round(x.rec), Math.round(x.net), x.blocks]))}</div>
-    <div class="card"><h2>How the estimate is made</h2><div class="vals" style="font-size:12.5px">CERC (Deviation Settlement Mechanism and Related Matters) Regulations, 2024 - Regulation 8(1) for a general seller, as notified (amendments of 2024, 2025 and 2026 do not change it), and 8(12) for forced outages. In each 15-minute block: deviation = actual injection − schedule (SLDC). Up to [10% of the schedule or 100 MW, whichever is less]: at RR when 49.97–50.03 Hz; over-injection −25% of RR per 0.01 Hz above 50.03 (50% at 50.05) and +2.15% per 0.01 Hz below 49.97 (115% at 49.90), zero at 50.05–50.10 Hz, seller pays 10% at 50.10 Hz and above, 115% below 49.90 Hz; under-injection −7.5% per 0.01 Hz above 50.03 (85% at 50.05), +7.15% per 0.01 Hz below 49.97 (150% at 49.90), 85% above 50.05 Hz, 150% below 49.90 Hz. Beyond the limit: over-injection zero (seller pays 10% at 50.10 Hz and above); under-injection at RR (f ≥ 50.00), 150% (49.90–50.00) or 200% (below 49.90). After a forced outage: RR for up to 8 blocks or until the schedule is revised. RR = energy charge rate of the PPA (SLDC merit order). Actual = SLDC real-time generation of the block; frequency = average of the readings in the block. Hydro is not included. A guide only: the SLDC account uses interface meter data and is final.</div></div>`;
+    <div class="card"><h2>How the estimate is made</h2><div class="vals" style="font-size:12.5px">CERC (Deviation Settlement Mechanism and Related Matters) Regulations, 2024 - Regulation 8(1) for a general seller, as notified (amendments of 2024, 2025 and 2026 do not change it), and 8(12) for forced outages. In each 15-minute block: deviation = actual injection − schedule (SLDC). Up to [10% of the schedule or 100 MW, whichever is less]: at RR when 49.97–50.03 Hz; over-injection −25% of RR per 0.01 Hz above 50.03 (50% at 50.05) and +2.15% per 0.01 Hz below 49.97 (115% at 49.90), zero at 50.05–50.10 Hz, seller pays 10% at 50.10 Hz and above, 115% below 49.90 Hz; under-injection −7.5% per 0.01 Hz above 50.03 (85% at 50.05), +7.15% per 0.01 Hz below 49.97 (150% at 49.90), 85% above 50.05 Hz, 150% below 49.90 Hz. Beyond the limit: over-injection zero (seller pays 10% at 50.10 Hz and above); under-injection at RR (f ≥ 50.00), 150% (49.90–50.00) or 200% (below 49.90). After a forced outage: RR for up to 8 blocks or until the schedule is revised. A unit shut down (zero schedule, no generation: reserve shutdown or outage) draws its auxiliaries from the grid: that drawal is charged at RR (Reg 8(9)); it is taken from AppSettings DSM_SHUTDOWN_AUX, else 0.5 % of the installed capacity. RR = energy charge rate of the PPA (SLDC merit order). Actual = SLDC real-time generation of the block; frequency = average of the readings in the block. Hydro is not included. A guide only: the SLDC account uses interface meter data and is final.</div></div>`;
 }
+
+/** A day chosen in the calendar: worked out by the service (block readings, else the stored daily DSM). */
+async function dEstPickDay(iso) {
+  if (!iso || !D.est) return;
+  if (D.est.days.some(d => d.date === iso)) { D.estDay = iso; D.estGroup = null; return dsmRender(); }
+  D.estPickBusy = true; D.estPickErr = ''; dsmRender();
+  const r = await conCall('dsm_estimate', {date: iso});
+  D.estPickBusy = false;
+  if (r.ok && r.data.days.length) { D.est.days = D.est.days.filter(d => d.date !== iso).concat(r.data.days).sort((a, b) => (a.date < b.date ? 1 : -1)); D.estDay = iso; D.estGroup = null; }
+  else D.estPickErr = r.ok ? 'No DSM figures for ' + dDate(iso) + ' (no readings were kept for that day).' : r.error;
+  dsmRender();
+}
+document.addEventListener('change', e => { if (e.target && e.target.id === 'estDatePick') dEstPickDay(e.target.value); });
 
 /** Block-wise working of one PPA group for the chosen day (dsm_blocks). */
 async function dEstBlocks(group) {

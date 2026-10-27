@@ -25,7 +25,7 @@ const W_UNIT_STATUS = ['In service', 'Under shutdown', 'Decommissioned'];
 
 const wMe = () => { try { return JSON.parse(Native.account() || '{}'); } catch (e) { return {}; } };
 const wCan = (module, how) => { if (module === 'superadmin') return wMe().role === 'superadmin'; if (module === 'adminonly') return ['admin', 'superadmin'].includes(wMe().role); const p = wMe().permissions || {}; return ((how === 'edit' ? p.edit : p.view) || []).includes(module); };
-const wRoleBadge = r => r === 'superadmin' ? '<span class="badge b-Forced">Super admin</span>' : r === 'admin' ? '<span class="badge b-RSD">Admin</span>' : '';
+const wRoleBadge = r => r === 'superadmin' ? '<span class="badge b-Forced">Super admin</span>' : r === 'admin' ? '<span class="badge b-RSD">Admin</span>' : r === 'solar' ? '<span class="badge b-Planned">Solar entry</span>' : '';
 const wBtn = (label, act, arg = '', primary = false) => `<button class="btn" data-wact="${act}" data-warg="${esc(arg)}" style="${primary ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : 'color:var(--accent)'}">${esc(label)}</button>`;
 const wBack = (label = 'More') => `<div class="chips"><button class="chip" data-wact="back">‹ ${esc(label)}</button></div>`;
 const wMsg = () => (W.error ? conErr(W.error) : '') + (W.note ? `<div class="alert" style="background:#dcfce7;color:#166534;border-color:#bbf7d0"><span>✓</span><span>${esc(W.note)}</span></div>` : '');
@@ -253,7 +253,7 @@ function wMerit() {
  * held, and answers "unchanged" (a few bytes) unless the Employees tab changed. The full record of one employee is
  * read when it is opened.
  */
-const W_ROLES = ['employee', 'admin', 'superadmin'];
+const W_ROLES = ['employee', 'admin', 'superadmin', 'solar'];
 function wAdminExpand(d) {
   return {...d, employees: (d.rows || []).map(([emp_no, full_name, designation, station, role, active, phones, last_login]) =>
     ({emp_no, full_name, designation, station, role: W_ROLES[role] || 'employee', active: !!active, phones, last_login}))};
@@ -423,8 +423,8 @@ function wStartForm(kind, arg = '') {
       {k: 'extension', label: 'Extension', value: e.extension}, {k: 'email', label: 'E-mail', type: 'email', value: e.email}, {k: 'blood_group', label: 'Blood group', type: 'select', options: [''].concat(CON_BLOOD), value: e.blood_group || ''},
       {k: 'date_of_birth', label: 'Date of birth', type: 'date', value: (e.date_of_birth || '').slice(0, 10), hint: arg ? '' : 'The first password is made from the name initials and this date.'},
       {k: 'show_mobile', label: 'Mobile visible in the directory', type: 'check', value: e.show_mobile}].concat(arg ? [] : [{k: 'active', label: 'Active (can sign in)', type: 'check', value: e.active}]);
-    if (admin) fields.push({k: 'role', label: 'Role', type: 'select', options: [['', 'Employee'], ['admin', 'Administrator']].concat(sup || d.can_grant_super || e.role === 'superadmin' ? [['superadmin', 'Super administrator (approves extra phones)']] : []), value: e.role === 'employee' ? '' : e.role || '',
-        hint: !d.superadmin_exists ? 'No super administrator is set yet: choose “Super administrator” here for the first one (after that only a super administrator can give this role). They approve requests for extra phones in More › Phone approvals.' : ''},
+    if (admin) fields.push({k: 'role', label: 'Role', type: 'select', options: [['', 'Employee'], ['admin', 'Administrator'], ['solar', 'Solar entry only (outside agency)']].concat(sup || d.can_grant_super || e.role === 'superadmin' ? [['superadmin', 'Super administrator (approves extra phones)']] : []), value: e.role === 'employee' ? '' : e.role || '',
+        hint: !d.superadmin_exists ? 'No super administrator is set yet: choose “Super administrator” here for the first one (after that only a super administrator can give this role). They approve requests for extra phones in More › Phone approvals.' : '“Solar entry only”: a person outside GSECL (solar O&M agency) who sees nothing but the daily entry of the solar sites that list their number (Generation › Solar › Edit site). They sign in with the same password and e-mailed code as employees.'},
       {k: 'can_view', label: 'May see', type: 'checks', options: d.modules, value: e.can_view, hint: 'Pages of the app: generation, dsm, rakes (railway rake tracking), coal (coal stock position), and the Safety tabs safety_obs (observations), safety_inc (incidents) and safety_ptw (permit to work). The first five and generation are open to everyone. See: own station; report or request.'},
       {k: 'can_edit', label: 'May change', type: 'checks', options: d.modules, value: e.can_edit, hint: 'coal = may enter the daily coal stock and rake unloading figures (an employee posted at WTPS, GTPS, STPS or UTPS only that station). safety_obs / safety_inc = safety officer: assign, investigate, close, all stations. ptw_de = Operation DE and ptw_sce = Shift Charge Engineer for permit approvals at their station.'});
     const phones = e.devices || [];

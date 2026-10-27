@@ -89,6 +89,7 @@ function genPush() {
   conCall('gen_push', {
     rt: g?.ok && Array.isArray(g.rt_rows) ? g.rt_rows : null,
     rt2: h?.ok && h.raw2 ? h.raw2 : null,
+    rt1: h?.ok && Array.isArray(h.raw1) ? h.raw1 : null,     // DISCOM / Gujarat-at-periphery drawal against schedule
     iex: S.iex?.ok ? {date: isoDay(Date.now()), rtm: S.iex.rtm || [], dam: S.iex.dam || []} : null,     // block prices for the DSM estimate
     outages: o?.ok ? (o.rows || o.allRows).map(r => ({unit: r.unit, type: r.type, cap: r.cap || '', since: r.since || '', back: r.revised || r.schedule || '', reason: r.reason || ''})) : null,
   }).catch(() => {});
@@ -269,7 +270,7 @@ async function gdSharedLoad() {
   gdShared.busy = true;
   const r = await conCall('history_get', {from: y0, to: Date.now()});
   gdShared.busy = false; gdShared.at = Date.now();
-  if (r.ok && Array.isArray(r.data.rows)) { gdShared.rows = r.data.rows; gdShared.from = y0; if ($('gdToday')) $('gdToday').innerHTML = gdTodayHtml(); }
+  if (r.ok && Array.isArray(r.data.rows)) { gdShared.rows = r.data.rows; gdShared.from = y0; if ($('gdToday')) $('gdToday').innerHTML = gdTodayHtml(); if (typeof gtRender === 'function') gtRender(); }
 }
 /** The day's readings for "Today so far": the shared ones when there are enough, else this device's. */
 function gdRows(localRows, t0) {
@@ -315,7 +316,7 @@ function gdTodayHtml() {
   const src = gdRows(gdHist.rows, t0);
   const A = gdDay(src.rows, t0), B = gdDay(src.rows, y0), nowM = (Date.now() - t0) / 60e3;
   if (A.length < 2) return '<h2>Today so far</h2><div class="empty">Not enough readings yet today. They are recorded while the app is open and by the background monitor (Profile).</div>';
-  const eA = gdEnergy(A), eB = gdEnergy(B, nowM), pk = A.reduce((b, p) => (p.v > b.v ? p : b)), lo = A.reduce((b, p) => (p.v < b.v ? p : b));
+  const eA = gdEnergy(A), eB = gdEnergy(B, nowM), {pk, lo} = blockStat(A);   // peak / low by 15-minute block
   const avg = gdAvg(A), hm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
   const ch = eB ? (eA - eB) / eB * 100 : null;
   const W = 340, H = 120, L = 34, R = 6, Tp = 8, Bt = 18, all = A.concat(B).map(p => p.v), hi = Math.max(...all) * 1.06, lw = Math.min(...all) * 0.94;
@@ -325,8 +326,8 @@ function gdTodayHtml() {
     <div class="tstats" style="grid-template-columns:repeat(4,1fr)">
       <div><span>Energy</span><b class="num">${fmt(eA, 2)}</b><small>MU till ${hm(A[A.length - 1].m)}</small></div>
       <div><span>vs yesterday</span><b class="num ${ch === null ? '' : ch >= 0 ? 'pos' : 'neg'}">${ch === null ? '—' : (ch >= 0 ? '+' : '−') + fmt(Math.abs(ch), 1) + '%'}</b><small>${eB ? fmt(eB, 2) + ' MU same time' : 'no data'}</small></div>
-      <div><span>Peak</span><b class="num">${fmt(pk.v)}</b><small>MW at ${hm(pk.m)}</small></div>
-      <div><span>Average</span><b class="num">${fmt(avg)}</b><small>low ${fmt(lo.v)} at ${hm(lo.m)}</small></div>
+      <div><span>Peak (15-min)</span><b class="num">${fmt(pk.v)}</b><small>MW in ${pk.lbl}</small></div>
+      <div><span>Average</span><b class="num">${fmt(avg)}</b><small>low ${fmt(lo.v)} in ${lo.lbl}</small></div>
     </div>
     <div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="GSECL generation today and yesterday">
       ${niceTicks(lw, hi, 3).map(v => `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L - 4}" y="${y(v) + 3.5}" text-anchor="end">${Math.abs(v) >= 1000 ? fmt(v / 1000, 1) + 'k' : fmt(v)}</text>`).join('')}
@@ -342,12 +343,12 @@ function gdTodayHtml() {
 
 /** GSECL against Gujarat today so far: energy (MU) and maximum MW of GSECL, Gujarat catered, solar and wind, with GSECL's share. */
 function gdGujHtml(rows, t0, hm, shared) {
-  const line = (label, col) => { const p = gdDay(rows, t0, col); if (p.length < 2) return null; const pk = p.reduce((b, x) => (x.v > b.v ? x : b)); return {label, mu: gdEnergy(p), max: pk.v, at: hm(pk.m)}; };
+  const line = (label, col) => { const p = gdDay(rows, t0, col); if (p.length < 2) return null; const {pk} = blockStat(p); return {label, mu: gdEnergy(p), max: pk.v, at: pk.lbl}; };
   const G = line('GSECL generation', 3), J = line('Gujarat catered', 2), So = line('Gujarat solar', 6), Wi = line('Gujarat wind', 7);
   if (!G || !J) return '';
   const tr = x => x ? `<tr><td>${x.label}</td><td><b>${fmt(x.mu, 2)}</b></td><td>${fmt(x.max)}</td><td>${x.at}</td><td>${J.mu ? fmt(x.mu / J.mu * 100, 1) + '%' : '—'}</td></tr>` : '';
   return `<h2 style="margin-top:14px">GSECL and Gujarat today</h2><div style="overflow-x:auto"><table class="gt num">
-    <tr><th></th><th>Energy MU</th><th>Max MW</th><th>at</th><th>of Gujarat MU</th></tr>
+    <tr><th></th><th>Energy MU</th><th>Peak MW (15-min)</th><th>block</th><th>of Gujarat MU</th></tr>
     ${tr(J)}${tr(G)}
     <tr class="tot"><td>GSECL share</td><td>${fmt(G.mu / J.mu * 100, 1)}%</td><td>${fmt(G.max / J.max * 100, 1)}%</td><td></td><td></td></tr>
     ${tr(So)}${tr(Wi)}</table></div>
@@ -1465,7 +1466,7 @@ function render() { renderHeader(); renderAlerts(); renderHome(); renderGujarat(
 
 // ---------------------------------------------------------------- interaction
 
-const SECTION = {home: 'gen', stations: 'gen', outages: 'gen', grid: 'gen', merit: 'gen', alerts: 'gen', dsm: 'dsm', coal: 'coal', safety: 'safety', connect: 'connect', chat: 'chat', info: 'me'};
+const SECTION = {home: 'gen', stations: 'gen', outages: 'gen', grid: 'gen', merit: 'gen', hydro: 'gen', solar: 'gen', alerts: 'gen', dsm: 'dsm', coal: 'coal', safety: 'safety', connect: 'connect', chat: 'chat', info: 'me'};
 function show(v) {
   const sec = SECTION[v] || 'gen';
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + v));
@@ -1477,8 +1478,10 @@ function show(v) {
   $('alerts').hidden = sec !== 'gen';
   if (sec === 'gen' && v !== 'alerts') document.querySelector('#nav button[data-sec="gen"]').dataset.v = v;   // come back to the same sub-tab
   window.scrollTo({top: 0});
-  if (v === 'grid') { renderTrends(); renderCompare(); renderPrices(); reFcLoad(); if (typeof lfShow === 'function') lfShow(); }
-  if (v === 'dsm') dsmShow();
+  if (v === 'grid') { renderTrends(); renderCompare(); renderPrices(); reFcLoad(); if (typeof lfShow === 'function') lfShow(); if (typeof gtRender === 'function') gtRender(); }
+  if (v === 'dsm') { dsmShow(); if (typeof dlShow === 'function') dlShow(); }
+  if (v === 'hydro' && typeof hyShow === 'function') hyShow();
+  if (v === 'solar' && typeof soShow === 'function') soShow();
   if (v === 'coal') kShow();
   if (v === 'safety') ySafetyShow();
   if (v === 'connect') conShow();
@@ -1576,6 +1579,26 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What changed in this version (shown in Profile › About); the newest first. */
 const RELEASE_NOTES = [
+  ['3.15.6', '27 Oct 2026', [
+    'Gujarat › Frequency and over / under drawal: SLDC “Gujarat At periphery” drawal against schedule by 15-minute block, over-drawal as bars up and under-drawal as bars down, with the frequency line; today or yesterday, over / under MU, largest blocks, over-drawal below 49.90 Hz',
+    'Gujarat › GSECL MU 00–17 h and 17–24 h: two lines over 30 days with the average MW of each part and the evening ramp-up',
+    'DSM › Live DSM by block moved to the bottom, for the station and unit chosen (remembered)',
+    'DSM › Estimate: any past day from the calendar (older days from the stored daily figures)']],
+  ['3.15.5', '27 Oct 2026', [
+    'Generation › Hydro: levels of Ukai, Kadana, Panam and Sardar Sarovar with FRL, storage, inflow and outflow, read every day from the WRD Gujarat dam report; daily MU of Ukai, Ukai LBC, Kadana, Panam, SSP RBPH and CHPH (entered), today so far from SLDC, 31-day chart and level trend',
+    'Generation › Solar: GSECL solar sites with capacity, daily MU, CUF and month total; daily entry by site; GSECL MU including solar. Administrators add sites and who may enter them',
+    'Solar entry by an outside agency: role “Solar entry only” signs in with password and e-mailed code and sees nothing but the entry of its own sites (last 3 days), every change recorded',
+    'Peak and minimum are now taken by 15-minute time block (block average), as in the grid accounts',
+    'DSM › Live DSM by block: the running block with its clock, the 3 blocks before and the 3 after for every unit / PPA group: deviation, limit, frequency, rate and ₹, with the MW to run for the rest of the block',
+    'DSM: a unit shut down with zero schedule (RSD or outage) is now charged for its auxiliary drawal from the grid at RR, as CERC DSM Regulations 2024 Reg 8(9)',
+    'Coal › Coal and rake movement: rakes received now from FOIS (a rake inside the station counts as received) for every day']],
+  ['3.15.4', '26 Oct 2026', [
+    'Security (Google Play Protect): the app no longer downloads or installs app files itself and no longer asks for permission to install apps. Update now opens the signed download page in the browser; install the downloaded file from there',
+    'App files (.apk) are never opened from chat or from documents',
+    'Every chart answers a touch: tap or drag across a line chart for the values of each line at that time, tap a bar or a donut for its value (Gujarat, today so far, forecast, 14 days, coal, DSM)']],
+  ['3.15.3', '26 Oct 2026', [
+    'Gujarat › Forecast vs actual: every day-ahead forecast is kept as it stood when the day began and compared with what happened: average error per block, bias, peak and peak-time error, energy error and blocks inside the 80 % range, day by day with the curves',
+    'The forecast fine-tunes itself from these comparisons (hourly correction from the last 21 days, from 5 days on, at most ±6 %)']],
   ['3.15.2', '26 Oct 2026', [
     'Coal › Map: map tiles load again (sent the way OpenStreetMap asks), and rail routes read by the Android phones are shared, so the web version also places the rakes on the map',
     'Older app versions keep working with a reminder to update (Update now / Download page / Later); blocking is only switched on by the administrator']],
@@ -1701,7 +1724,7 @@ function renderUpdate() {
   $('aboutVer').textContent = 'Version ' + cur + (u.built ? ' · released ' + u.built : '') + (u.update ? ' · update available' : '');
   const when = u.checked ? new Date(u.checked).toLocaleString('en-IN', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'}) : 'not yet';
   $('updCard').innerHTML = `<h2>App version &amp; updates</h2>
-    ${u.update ? `<div class="updb" data-upd="install"><div><b>Version ${esc(L.version)} is available</b><span>${L.size ? fmt(L.size / 1048576, 1) + ' MB · ' : ''}${esc(L.date || '')}</span></div><span class="go">Install</span></div>
+    ${u.update ? `<div class="updb" data-upd="install"><div><b>Version ${esc(L.version)} is available</b><span>${L.size ? fmt(L.size / 1048576, 1) + ' MB · ' : ''}${esc(L.date || '')}</span></div><span class="go">Update</span></div>
       ${L.notes ? `<div class="vals" style="margin:-4px 0 10px">${esc(L.notes)}</div>` : ''}` : `<div class="vals" style="margin-bottom:8px">✓ You have the latest version (${esc(cur)}). Last checked ${esc(when)}.</div>`}
     <div class="tstats" style="grid-template-columns:repeat(3,1fr);margin:0 0 10px"><div><span>Installed</span><b class="num">${esc(cur)}</b><small>build ${esc(String(u.code || '—'))}</small></div>
       <div><span>Released</span><b class="num" style="font-size:12.5px;white-space:normal">${esc(u.built || notes[1])}</b></div>
@@ -1709,9 +1732,9 @@ function renderUpdate() {
     <b style="font-size:13px">What's new in ${esc(notes[0])} · ${esc(notes[1])}</b><ul class="wn">${notes[2].map(n => `<li>${esc(n)}</li>`).join('')}</ul>
     <details style="margin-top:8px"><summary style="font-size:13px">Version history</summary>${RELEASE_NOTES.filter(r => r !== notes).map(r => `<div style="margin-top:8px;font-size:12.5px"><b>${esc(r[0])}</b> <span class="muted">· ${esc(r[1])}</span><ul class="wn" style="margin-top:2px">${r[2].map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>`).join('')}</details>
     ${updMsg ? `<div class="alert ${updErr ? 'err' : ''}" style="margin:10px 0 0"><span>${updErr ? '⚠' : 'ℹ'}</span><span>${esc(updMsg)}</span></div>` : ''}
-    <div style="margin-top:10px"><button class="btn" data-upd="check" style="color:var(--accent)">Check for updates</button>${u.update ? ' <button class="btn" data-upd="install" style="background:var(--accent);color:#fff;border-color:var(--accent)">Download and install</button>' : ''}</div>
-    <div class="note-src">Updates are published by the administrator in the GSECL Connect Drive folder “App updates”; the app checks a few times a day. Android installs an update only if it comes from the same publisher as this app.</div>`;
-  $('updBanner').innerHTML = u.update ? `<div class="updb" data-upd="open"><div><b>Update available · version ${esc(L.version)}</b><span>Tap to see what's new and install</span></div><span class="go">Update</span></div>` : '';
+    <div style="margin-top:10px"><button class="btn" data-upd="check" style="color:var(--accent)">Check for updates</button>${u.update ? ' <button class="btn" data-upd="install" style="background:var(--accent);color:#fff;border-color:var(--accent)">Open download page</button>' : ''}</div>
+    <div class="note-src">Updates are published by the administrator in the GSECL Connect Drive folder “App updates”; the app checks a few times a day. “Open download page” opens the signed download page in the browser; install the downloaded file from there. Android installs it only if it comes from the same publisher as this app.</div>`;
+  $('updBanner').innerHTML = u.update ? `<div class="updb" data-upd="open"><div><b>Update available · version ${esc(L.version)}</b><span>Tap to see what's new and update</span></div><span class="go">Update</span></div>` : '';
 }
 window.onUpdateInfo = renderUpdate;
 window.onUpdateMsg = (msg, err) => { updMsg = msg; updErr = !!err; renderUpdate(); };
@@ -1722,7 +1745,7 @@ document.addEventListener('click', e => {
   const a = b.dataset.upd;
   if (a === 'open') return window.showUpdate();
   if (a === 'check') { updMsg = 'Checking…'; updErr = false; renderUpdate(); if (hasNative('updateCheck')) Native.updateCheck(); setTimeout(() => { if (updMsg === 'Checking…') { updMsg = ''; renderUpdate(); } }, 15000); return; }
-  if (a === 'install') { updMsg = 'Preparing the download…'; updErr = false; renderUpdate(); if (hasNative('updateInstall')) Native.updateInstall(); }
+  if (a === 'install') { updMsg = 'Opening the download page…'; updErr = false; renderUpdate(); if (hasNative('updateInstall')) Native.updateInstall(); }
 });
 window.addEventListener('load', () => { renderUpdate(); if (hasNative('updateRequested') && Native.updateRequested()) window.showUpdate(); });
 
@@ -1745,6 +1768,7 @@ $('alertClear').addEventListener('click', () => {
 });
 
 setInterval(() => {
+  if (window.SOLAR_ONLY) return;   // outside solar-entry sign-in: no generation data
   tick++;
   const every = S.set.refresh;
   if (tick % every === 0) { load('gsecl'); load('home'); }
@@ -1757,5 +1781,7 @@ setInterval(() => {
 S.set = loadSettings();
 applyTheme();
 sendUnitLabels();
-render();
-refreshAll();
+// An outside solar-entry sign-in (role "solar") sees only the solar entry page (hysol.js): no generation data is read.
+const APP_SOLAR_ONLY = (() => { try { return typeof Native !== 'undefined' && Native.account && JSON.parse(Native.account() || '{}').role === 'solar'; } catch (e) { return false; } })();
+if (APP_SOLAR_ONLY) window.SOLAR_ONLY = true;
+else { render(); refreshAll(); }

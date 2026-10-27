@@ -5,11 +5,14 @@
 //   1. similar days: the same weekday of the last weeks (Sundays and holidays together; Saturdays apart), median per block;
 //   2. weather: + (temperature of the day − temperature of those similar days) × the MW-per-°C learnt from the history;
 //   3. level: the last 3 days against their own similar days (half of the difference, at most ±8 %);
-//   4. band: the errors of the same method on the last 14 days (back-test) give an 80 % range per block.
+//   4. band: the errors of the same method on the last 14 days (back-test) give an 80 % range per block;
+//   5. fine-tuning: every day's forecast as it stood when the day began is kept by the service (ForecastLog); against what
+//      happened, the last 21 such days give an hourly correction (median actual / forecast, from 5 days, full weight
+//      from 10, at most ±6 %), applied to the next forecasts. "Forecast vs actual" shows how close each day came.
 // Scenario chips recompute it as a working day, a holiday, or 2 °C hotter / cooler.
 // Uses $, esc, fmt, niceTicks, conCall, hasConnect, csvBtn, S, gdRows, parseRows, Native from the page.
 
-const LF = {data: null, at: 0, busy: false, err: '', temp: null, tempAt: 0, scen: 'auto', fc: null};
+const LF = {data: null, at: 0, busy: false, err: '', temp: null, tempAt: 0, scen: 'auto', fc: null, acc: null, accDay: '', sent: {}};
 const LF_CITIES = [[23.03, 72.58, .35], [21.17, 72.83, .30], [22.31, 73.18, .20], [22.30, 70.80, .15]];   // Ahmedabad, Surat, Vadodara, Rajkot (weights)
 
 // ---------------------------------------------------------------- calculation (no page access: tested on its own)
@@ -88,11 +91,12 @@ async function lfLoad(force) {
   if (LF.busy || typeof conCall !== 'function' || typeof hasConnect !== 'function' || !hasConnect()) return;
   if (!force && LF.data && Date.now() - LF.at < 20 * 60e3) return;
   LF.busy = true; lfRender();
-  const [r] = await Promise.all([conCall('load_profile', {days: 70}), lfTemps()]);
+  const [r, a] = await Promise.all([conCall('load_profile', {days: 70}), conCall('forecast_get', {days: 45}), lfTemps()]);
   LF.busy = false;
+  if (a && a.ok && a.data && Array.isArray(a.data.days)) LF.acc = a.data.days;
   if (r.ok) { LF.data = r.data; LF.at = Date.now(); LF.err = ''; }
   else LF.err = /unknown action/i.test(r.error) ? 'The load forecast needs the updated GSECL Connect script (new Code.gs).' : r.error;
-  LF.fc = null; lfRender(); lfHeroRender(); lfDaysRender();
+  LF.fc = null; lfRender(); lfHeroRender(); lfDaysRender(); lfAccRender(); if (typeof gtRender === 'function') gtRender();
 }
 /** Daily mean temperature (°C, population-weighted over four cities) for the last 92 days and the next two. */
 async function lfTemps() {
@@ -122,9 +126,114 @@ function lfCompute() {
   const opt = {auto: {}, work: {type: lfDow(tomorrow) === 6 ? 'S' : 'W'}, hol: {type: 'H'}, p2: {dT: 2}, m2: {dT: -2}}[LF.scen] || {};
   const f = lfForecast(tomorrow, days, hol, temp, opt), bt = lfBacktest(tomorrow, days, hol, temp);
   if (!f) return (LF.fc = {scen: LF.scen, none: true});
+  const tune = lfTuneFactors();
+  f.raw = f.fc.slice();
+  if (tune) { f.fc = f.fc.map((v, b) => (v === null ? null : v * tune.f[Math.floor(b / 4)])); f.tune = tune; }
   const z = 1.28, band = f.fc.map((v, b) => (v === null || !bt ? null : [v * (1 - z * bt.sd[b]), v * (1 + z * bt.sd[b])]));
-  return (LF.fc = {scen: LF.scen, tomorrow, today, f, bt, band, days, hol, autoType: lfType(tomorrow, hol)});
+  LF.fc = {scen: LF.scen, tomorrow, today, f, bt, band, days, hol, autoType: lfType(tomorrow, hol)};
+  if (LF.scen === 'auto') lfIssue(LF.fc);
+  return LF.fc;
 }
+
+/** Tomorrow's forecast (Auto) sent to the service, which keeps the last one sent before the day begins. */
+function lfIssue(fc) {
+  if (typeof conCall !== 'function' || typeof hasConnect !== 'function' || !hasConnect()) return;
+  const sig = fc.tomorrow + '|' + fc.f.fc.map(v => (v === null ? '' : Math.round(v))).join(',');
+  if (LF.sent[fc.tomorrow] === sig) return;
+  LF.sent[fc.tomorrow] = sig;
+  const r = a => a.map(v => (v === null || v === undefined || !isFinite(v) ? null : Math.round(v)));
+  conCall('forecast_put', {date: fc.tomorrow, fc: r(fc.f.fc), raw: r(fc.f.raw), lo: r(fc.band.map(b => (b ? b[0] : null))), hi: r(fc.band.map(b => (b ? b[1] : null))),
+    type: fc.f.type, temp: fc.f.tT, tune: fc.f.tune ? fc.f.tune.f : null}).catch(() => {});
+}
+
+// ---------------------------------------------------------------- forecast against what happened, and the fine-tuning it gives
+
+/** Issued forecasts with the actual day: [{date, fc, lo, hi, raw, a (actual 96), full, n (blocks), mape, bias, pkF, pkA, muF, muA, inBand}] */
+function lfAccRows() {
+  if (!LF.acc || !LF.data) return [];
+  const act = {}; LF.data.days.forEach(d => { act[d.date] = d; });
+  return LF.acc.map(x => {
+    const a = act[x.date] && act[x.date].c; if (!a || !x.fc) return null;
+    const blocks = x.fc.map((p, b) => [p, a[b], b]).filter(([p, v]) => p && v);
+    if (blocks.length < 8) return null;
+    const mape = lfMean(blocks.map(([p, v]) => Math.abs(v - p) / v)) * 100, bias = lfMean(blocks.map(([p, v]) => (p - v) / v)) * 100;
+    const sF = lfStats(x.fc), sA = lfStats(a), full = lfFull(act[x.date]);
+    const inBand = x.lo && x.hi ? blocks.filter(([, v, b]) => x.lo[b] !== null && x.hi[b] !== null && v >= x.lo[b] && v <= x.hi[b]).length / blocks.length * 100 : null;
+    const mx = blocks.reduce((m, [p, v, b]) => (!m || Math.abs(v - p) > m.e ? {e: Math.abs(v - p), b, p, v} : m), null);
+    return Object.assign({}, x, {a, full, n: blocks.length, mape, bias, pkF: sF.pk, pkA: sA.pk, muF: sF.mu, muA: full ? sA.mu : null, inBand, mx});
+  }).filter(Boolean);
+}
+/** Hourly correction from the last 21 full days: median actual / untuned forecast per hour, weighted in from 5 days, ±6 % at most. */
+function lfTuneFactors() {
+  const rows = lfAccRows().filter(r => r.full).slice(-21);
+  if (rows.length < 5) return null;
+  const w = Math.min(1, rows.length / 10);
+  const f = Array.from({length: 24}, (_, h) => {
+    const r = []; rows.forEach(x => { const base = x.raw || x.fc; for (let b = h * 4; b < h * 4 + 4; b++) if (base[b] && x.a[b]) r.push(x.a[b] / base[b]); });
+    const m = lfMed(r); return m ? Math.max(0.94, Math.min(1.06, 1 + (m - 1) * w)) : 1;
+  });
+  const sm = f.map((v, h) => lfMean([f[(h + 23) % 24], v, v, f[(h + 1) % 24]]));
+  return {f: sm, n: rows.length, avg: (lfMean(sm) - 1) * 100};
+}
+const lfDm = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-IN', {day: '2-digit', month: 'short'});
+/** The "Forecast vs actual" card (markup works in GSECL Connect and Gujarat Power). */
+function lfAccHtml() {
+  const rows = lfAccRows();
+  const head = `<h2>Forecast vs actual · Gujarat catered</h2>`;
+  if (!LF.acc) return head + `<div class="empty">${LF.busy ? 'Reading…' : 'The issued forecasts are kept from now on (they need the updated GSECL Connect script); the comparison appears after the first forecast day has passed.'}</div>`;
+  if (!rows.length) return head + `<div class="empty">The first issued forecast is compared once its day has begun (${LF.acc.length ? 'next: ' + lfDm(LF.acc[LF.acc.length - 1].date) : 'none kept yet'}).</div>`;
+  const full = rows.filter(r => r.full), last = full.slice(-30);
+  const day = rows.find(r => r.date === LF.accDay) || rows[rows.length - 1];
+  const avg = k => lfMean(last.map(r => r[k]).filter(v => v !== null && v !== undefined && isFinite(v)));
+  const pkE = lfMean(last.filter(r => r.pkF && r.pkA).map(r => Math.abs(r.pkF.v - r.pkA.v) / r.pkA.v * 100));
+  const enE = lfMean(last.filter(r => r.muA).map(r => Math.abs(r.muF - r.muA) / r.muA * 100));
+  const tune = lfTuneFactors(), hm = lfHm, f1 = v => (v === null || v === undefined || !isFinite(v) ? '—' : fmt(v, 1));
+  // the chosen day: forecast, band and actual
+  const W = 340, H = 190, L = 40, R = 8, T = 10, B = 20;
+  const vals = day.fc.concat(day.a, day.lo || [], day.hi || []).filter(v => v !== null && v !== undefined && isFinite(v));
+  const hi = Math.max(...vals) * 1.03, lo = Math.min(...vals) * 0.97, x = b => L + b / 95 * (W - L - R), y = v => T + (hi - v) / ((hi - lo) || 1) * (H - T - B);
+  const path = a => { let d = '', pen = false; (a || []).forEach((v, b) => { if (v === null || v === undefined) { pen = false; return; } d += (pen ? 'L' : 'M') + x(b).toFixed(1) + ',' + y(v).toFixed(1); pen = true; }); return d; };
+  const band = day.lo && day.hi ? 'M' + day.hi.map((v, b) => (v === null ? null : x(b).toFixed(1) + ',' + y(v).toFixed(1))).filter(Boolean).join('L') + 'L' + day.lo.map((v, b) => (v === null ? null : x(b).toFixed(1) + ',' + y(v).toFixed(1))).filter(Boolean).reverse().join('L') + 'Z' : '';
+  const tips = day.fc.map((p, b) => (b % 2 ? '' : `<rect x="${(x(b) - 1.8).toFixed(1)}" y="${T}" width="3.6" height="${H - T - B}" fill="transparent" data-tip="${esc(`${lfDm(day.date)} ${hm(b)}
+Forecast ${p ? fmt(p) : '—'} MW · actual ${day.a[b] ? fmt(day.a[b]) : '—'} MW${p && day.a[b] ? `
+Error ${(p - day.a[b] >= 0 ? '+' : '−') + fmt(Math.abs(p - day.a[b]))} MW (${fmt(Math.abs(p - day.a[b]) / day.a[b] * 100, 1)}%)` : ''}`)}"><title>${hm(b)}</title></rect>`)).join('');
+  const chart = `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Forecast and actual">
+    ${niceTicks(lo, hi, 4).map(v => `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L - 4}" y="${y(v) + 3.5}" text-anchor="end">${fmt(v / 1000, 1)}k</text>`).join('')}
+    ${[0, 24, 48, 72, 95].map((b, i) => `<text class="ax" x="${x(b)}" y="${H - 5}" text-anchor="${i === 0 ? 'start' : i === 4 ? 'end' : 'middle'}">${b === 95 ? '24:00' : hm(b)}</text>`).join('')}
+    ${band ? `<path d="${band}" style="fill:var(--accent,var(--teal));opacity:.15"/>` : ''}
+    <path d="${path(day.fc)}" fill="none" style="stroke:var(--accent,var(--teal))" stroke-width="2.4" stroke-dasharray="6 3"/>
+    <path d="${path(day.a)}" fill="none" style="stroke:var(--brand2,var(--navy2))" stroke-width="2.4"/>${tips}</svg></div>`;
+  // error per day (bars)
+  const bw = (W - L - R) / Math.max(last.length, 1), mx = Math.max(6, ...last.map(r => r.mape)) * 1.1, yb = v => T + (mx - v) / mx * (120 - T - B);
+  const bars = last.length ? `<div class="chart"><svg viewBox="0 0 ${W} 120">${[0, mx / 2, mx].map(v => `<line class="grid" x1="${L}" x2="${W - R}" y1="${yb(v)}" y2="${yb(v)}"/><text class="ax" x="${L - 4}" y="${yb(v) + 3.5}" text-anchor="end">${fmt(v, 0)}%</text>`).join('')}
+    ${last.map((r, i) => `<rect x="${(L + bw * i + bw * .15).toFixed(1)}" y="${yb(r.mape).toFixed(1)}" width="${(bw * .7).toFixed(1)}" height="${(120 - B - yb(r.mape)).toFixed(1)}" rx="2" style="fill:${r.mape < 3 ? '#059669' : r.mape < 5 ? '#f59e0b' : '#e11d48'};cursor:pointer" data-lfacc="${r.date}" data-tip="${esc(`${lfDm(r.date)}: average error ${fmt(r.mape, 1)}%
+Peak ${r.pkF ? fmt(r.pkF.v) : '—'} forecast · ${r.pkA ? fmt(r.pkA.v) : '—'} actual MW`)}"><title>${lfDm(r.date)} ${fmt(r.mape, 1)}%</title></rect>`).join('')}
+    <text class="ax" x="${L}" y="${120 - 5}">${lfDm(last[0].date)}</text><text class="ax" x="${W - R}" y="${120 - 5}" text-anchor="end">${lfDm(last[last.length - 1].date)}</text></svg></div>` : '';
+  const k = (l, v, sub) => `<div class="kpi"><span>${l}</span><b class="num">${v}</b><small style="white-space:normal;overflow-wrap:anywhere">${sub}</small></div>`;
+  const pe = day.pkF && day.pkA ? day.pkF.v - day.pkA.v : null, te = day.pkF && day.pkA ? (day.pkF.b - day.pkA.b) * 15 : null;
+  return head + `<div class="tstats kpis four" style="grid-template-columns:repeat(4,1fr)">
+      ${k('Average error', last.length ? f1(avg('mape')) + '%' : '—', `per block · ${last.length} day${last.length === 1 ? '' : 's'}`)}
+      ${k('Bias', last.length ? (avg('bias') >= 0 ? '+' : '−') + f1(Math.abs(avg('bias'))) + '%' : '—', avg('bias') >= 0 ? 'forecast above actual' : 'forecast below actual')}
+      ${k('Peak error', pkE ? f1(pkE) + '%' : '—', 'average, MW')}
+      ${k('Within 80 % range', avg('inBand') !== null ? fmt(avg('inBand'), 0) + '%' : '—', `of blocks · energy error ${enE ? f1(enE) + '%' : '—'}`)}</div>
+    ${bars ? `<div class="note-src note" style="margin:6px 0 0">Average error each day (tap a bar): green under 3 %, amber 3–5 %, red above 5 %.</div>${bars}` : ''}
+    <div class="chips" style="margin-top:8px">${rows.slice(-10).map(r => `<button class="chip ${r.date === day.date ? 'on' : ''}" data-lfacc="${r.date}">${lfDm(r.date)}${r.full ? '' : ' (today)'}</button>`).join('')}</div>
+    <div class="vals" style="margin:4px 0"><b>${esc(new Date(day.date + 'T12:00:00').toLocaleDateString('en-IN', {weekday: 'long', day: '2-digit', month: 'short'}))}</b>${day.full ? '' : ' · actual so far'} · forecast issued ${esc(String(day.made_at || '').slice(0, 16))}</div>
+    ${chart}
+    <div class="keyline key"><span><i style="width:16px;height:0;border-top:2px dashed var(--accent,var(--teal))"></i>Forecast (day-ahead)</span><span><i style="width:16px;height:3px;background:var(--brand2,var(--navy2))"></i>Actual</span><span><i style="width:16px;height:8px;background:var(--accent,var(--teal));opacity:.3"></i>80 % range</span></div>
+    <div class="tstats kpis four" style="grid-template-columns:repeat(4,1fr)">
+      ${k('Average error', f1(day.mape) + '%', `bias ${(day.bias >= 0 ? '+' : '−') + f1(Math.abs(day.bias))}%`)}
+      ${k('Peak', day.pkA ? fmt(day.pkA.v) : '—', `actual at ${day.pkA ? hm(day.pkA.b) : '—'} · forecast ${day.pkF ? fmt(day.pkF.v) : '—'}${pe !== null ? ` (${pe >= 0 ? '+' : '−'}${fmt(Math.abs(pe))})` : ''}`)}
+      ${k('Peak time', te === null ? '—' : (te === 0 ? 'on time' : (te > 0 ? '+' : '−') + fmt(Math.abs(te)) + ' min'), `forecast ${day.pkF ? hm(day.pkF.b) : '—'}`)}
+      ${k('Energy', day.muA ? fmt(day.muA, 1) + ' MU' : '—', `forecast ${fmt(day.muF, 1)} MU${day.muA ? ` (${(day.muF - day.muA >= 0 ? '+' : '−') + f1(Math.abs(day.muF - day.muA) / day.muA * 100)}%)` : ''}`)}</div>
+    <div class="note-src note">Largest miss ${day.mx ? `${fmt(day.mx.e)} MW at ${hm(day.mx.b)}` : '—'}${day.inBand !== null ? ` · ${fmt(day.inBand, 0)}% of blocks inside the 80 % range` : ''}.
+      ${tune ? `Fine-tuning now in use: hourly correction from the last ${tune.n} days, on average ${tune.avg >= 0 ? '+' : '−'}${f1(Math.abs(tune.avg))}% (largest ${(Math.max(...tune.f.map(v => Math.abs(v - 1))) * 100).toFixed(1)}%).` : `Fine-tuning starts after 5 complete forecast days (${full.length} so far).`}
+      The forecast compared is the one kept when the day began (sent by the phones the day before).</div>
+    ${typeof csvBtn === 'function' ? csvBtn('lfAcc', 'Gujarat_forecast_vs_actual', ['Date', 'Average error %', 'Bias %', 'Peak forecast MW', 'Peak actual MW', 'Peak forecast time', 'Peak actual time', 'Energy forecast MU', 'Energy actual MU', 'Within 80% range %'],
+      rows.map(r => [r.date, r.mape.toFixed(2), r.bias.toFixed(2), r.pkF ? Math.round(r.pkF.v) : '', r.pkA ? Math.round(r.pkA.v) : '', r.pkF ? hm(r.pkF.b) : '', r.pkA ? hm(r.pkA.b) : '', r.muF ? r.muF.toFixed(2) : '', r.muA ? r.muA.toFixed(2) : '', r.inBand === null ? '' : r.inBand.toFixed(0)])) : ''}`;
+}
+/** GSECL Connect: the card under the forecast. */
+function lfAccRender() { const box = $('loadAcc'); if (box) box.innerHTML = lfAccHtml(); }
 
 // ---------------------------------------------------------------- Gujarat summary (management view)
 
@@ -143,7 +252,7 @@ function lfHeroRender() {
   const h = S.home, m = h?.ok ? h.mix || {} : {}, cat = h?.ok ? h.catered?.value ?? null : null, f = h?.ok ? h.freq?.value ?? null : null;
   const total = m.total ?? null, imp = cat !== null && total !== null ? cat - total : null, re = (m.solar || 0) + (m.wind || 0);
   const T = lfTodayRows(), nowM = (Date.now() - T.t0) / 60e3;
-  const pk = T.cat.reduce((b, p) => (!b || p.v > b.v ? p : b), null), lo = T.cat.reduce((b, p) => (!b || p.v < b.v ? p : b), null);
+  const {pk, lo} = blockStat(T.cat);   // 15-minute block averages
   const eT = lfEnergy(T.cat), eY = lfEnergy(T.catY.filter(p => p.m <= nowM)), ch = eY ? (eT - eY) / eY * 100 : null;
   const hm = mm => `${String(Math.floor(mm / 60)).padStart(2, '0')}:${String(Math.floor(mm % 60)).padStart(2, '0')}`;
   const fc = lfCompute(), fs = fc && !fc.none ? lfStats(fc.f.fc) : null;
@@ -156,7 +265,7 @@ function lfHeroRender() {
       ${k(imp !== null && imp < 0 ? 'Net export' : 'Net import', imp === null ? '—' : fmt(Math.abs(imp)), 'MW (catered − generation)')}
       ${k('RE share now', cat ? fmt(re / cat * 100, 1) + '%' : '—', `solar ${fmt(m.solar || 0)} · wind ${fmt(m.wind || 0)} MW`)}
       ${k('GSECL share now', cat && m.gsecl ? fmt(m.gsecl / cat * 100, 1) + '%' : '—', `${fmt(m.gsecl || 0)} MW of catered`)}
-      ${k('Peak today', pk ? fmt(pk.v) : '—', pk ? 'MW at ' + hm(pk.m) + (lo ? ` · low ${fmt(lo.v)} at ${hm(lo.m)}` : '') : 'no readings yet')}
+      ${k('Peak today (15-min block)', pk ? fmt(pk.v) : '—', pk ? 'MW in ' + pk.lbl + (lo ? ` · low ${fmt(lo.v)} in ${lo.lbl}` : '') : 'no readings yet')}
       ${k('Energy today', T.cat.length > 1 ? fmt(eT, 1) + ' MU' : '—', ch === null ? 'catered so far' : `${ch >= 0 ? '+' : '−'}${fmt(Math.abs(ch), 1)}% vs yesterday same time`, ch === null ? '' : ch >= 0 ? 'pos' : 'neg')}
       ${k('Tomorrow peak (forecast)', fs && fs.pk ? fmt(fs.pk.v) : '—', fs && fs.pk ? `MW at ${lfHm(fs.pk.b)} · ${fmt(fs.mu, 0)} MU` : 'see the forecast below')}
       ${k('Solar today', T.sol.length > 1 ? fmt(lfEnergy(T.sol), 1) + ' MU' : '—', 'Gujarat, so far')}
@@ -227,7 +336,7 @@ function lfDaysRender() {
       ${niceTicks(emin, emax, 4).map(v => `<text class="ax" x="${W - R + 4}" y="${ye(v) + 3.5}">${fmt(v, 0)}</text>`).join('')}
       ${list.map((d, i) => `<rect x="${(xc(i) - bw * 0.32).toFixed(1)}" y="${y(d.pk.v).toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${(H - B - y(d.pk.v)).toFixed(1)}" rx="3" style="fill:${d.type === 'W' ? 'var(--accent)' : d.type === 'S' ? 'var(--s2)' : 'var(--s1)'};opacity:${d === best ? 1 : .8}"><title>${dl(d.date)} peak ${fmt(d.pk.v)} MW at ${lfHm(d.pk.b)} · ${fmt(d.mu, 1)} MU · RE ${fmt(d.re, 1)}%</title></rect>
         <text class="ax" x="${xc(i)}" y="${H - 16}" text-anchor="middle">${dl(d.date).slice(0, 2)}</text><text class="ax" x="${xc(i)}" y="${H - 5}" text-anchor="middle" style="font-size:8.5px">${wd(d.date)}</text>`).join('')}
-      <path d="${list.map((d, i) => (i ? 'L' : 'M') + xc(i).toFixed(1) + ',' + ye(d.mu).toFixed(1)).join('')}" fill="none" style="stroke:var(--brand2)" stroke-width="2.2"/>
+      <path d="${list.map((d, i) => (i ? 'L' : 'M') + xc(i).toFixed(1) + ',' + ye(d.mu).toFixed(1)).join('')}" fill="none" style="stroke:var(--brand2)" stroke-width="2.2" data-axis="r"/>
       ${list.map((d, i) => `<circle cx="${xc(i)}" cy="${ye(d.mu)}" r="2.8" style="fill:var(--brand2)"/>`).join('')}
     </svg></div>
     <div class="keyline"><span><i style="width:12px;height:10px;background:var(--accent)"></i>Peak MW, working day</span><span><i style="width:12px;height:10px;background:var(--s2)"></i>Saturday</span><span><i style="width:12px;height:10px;background:var(--s1)"></i>Sunday / holiday</span><span><i style="width:14px;height:3px;background:var(--brand2)"></i>Energy MU (right)</span></div>
@@ -278,15 +387,18 @@ function lfRender() {
     <div class="keyline"><span><i style="width:16px;height:3px;background:var(--accent)"></i>Tomorrow (forecast)</span><span><i style="width:16px;height:8px;background:var(--accent);opacity:.25"></i>80 % range</span>
       <span><i style="width:16px;height:3px;background:var(--brand2)"></i>Today</span><span><i style="width:16px;height:0;border-top:2px dashed var(--muted)"></i>Yesterday</span>
       ${lastSame && f.sim[0] !== lfAdd(fc.today, -1) ? `<span><i style="width:16px;height:0;border-top:2px dotted var(--s1)"></i>Last ${esc(typeTxt[f.type])} (${esc(f.sim[0].slice(8))}/${esc(f.sim[0].slice(5, 7))})</span>` : ''}</div>
-    <div class="note-src">How: median of similar days (${f.sim.map(d => d.slice(8) + '/' + d.slice(5, 7)).join(', ')}), weather ${f.slope ? `${fmt(f.slope, 0)} MW per °C (${f.tT !== null && f.tSim !== null ? (f.tT >= f.tSim ? '+' : '−') + fmt(Math.abs(f.tT - f.tSim), 1) + ' °C vs those days' : 'no temperature'})` : 'effect not significant yet'}, recent level ${f.level >= 1 ? '+' : '−'}${fmt(Math.abs(f.level - 1) * 100, 1)}%.
+    <div class="note-src">How: median of similar days (${f.sim.map(d => d.slice(8) + '/' + d.slice(5, 7)).join(', ')}), weather ${f.slope ? `${fmt(f.slope, 0)} MW per °C (${f.tT !== null && f.tSim !== null ? (f.tT >= f.tSim ? '+' : '−') + fmt(Math.abs(f.tT - f.tSim), 1) + ' °C vs those days' : 'no temperature'})` : 'effect not significant yet'}, recent level ${f.level >= 1 ? '+' : '−'}${fmt(Math.abs(f.level - 1) * 100, 1)}%${f.tune ? `, fine-tuned from ${f.tune.n} days of forecast vs actual (${f.tune.avg >= 0 ? '+' : '−'}${fmt(Math.abs(f.tune.avg), 1)}% on average)` : ''}.
       Holidays: built-in fixed dates plus the AppSettings list HOLIDAYS (festivals such as Diwali). Profiles from the readings GSECL Connect keeps; weather Open-Meteo. A planning guide, not SLDC's forecast.</div>
     ${csvBtn('loadFc', 'Gujarat_load_forecast_' + tomorrow, ['Block', 'Time', 'Forecast MW', 'Low (80%) MW', 'High (80%) MW', 'Today MW', 'Yesterday MW'],
       f.fc.map((v, b) => [b + 1, lfHm(b), v === null ? null : Math.round(v), band[b] ? Math.round(band[b][0]) : null, band[b] ? Math.round(band[b][1]) : null, today?.c?.[b] ?? null, yday?.c?.[b] ?? null]))}`;
+  lfAccRender();
 }
 
-function lfShow() { lfHeroRender(); lfRender(); lfDaysRender(); lfLoad(false); }
+function lfShow() { lfHeroRender(); lfRender(); lfDaysRender(); lfAccRender(); lfLoad(false); }
 if (typeof document !== 'undefined') document.addEventListener('click', e => {
   const s = e.target.closest('[data-lfs]'); if (s) { LF.scen = s.dataset.lfs; LF.fc = null; lfRender(); lfHeroRender(); return; }
   if (e.target.closest('[data-lfref]')) lfLoad(true);
+  const d = e.target.closest('[data-lfacc]');
+  if (d) { LF.accDay = d.dataset.lfacc; lfAccRender(); if (window.APP_MODE === 'gpower' && typeof render === 'function') render(); }
 });
-if (typeof module !== 'undefined') module.exports = {lfForecast, lfBacktest, lfStats, lfType, lfAdd};
+if (typeof module !== 'undefined') module.exports = {lfForecast, lfBacktest, lfStats, lfType, lfAdd, lfAccRows, lfTuneFactors, LF};

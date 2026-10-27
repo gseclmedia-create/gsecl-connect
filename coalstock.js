@@ -283,9 +283,11 @@ function sCombo() {
   const from = spIso(1 - SP.range), plants = SP.scope === 'ALL' ? SP.data.plants : [SP.scope];
   const dates = [...new Set(spStock().filter(r => r.date >= from && plants.includes(r.plant)).map(r => r.date))].sort();
   const pts = dates.map(d => {
-    const st = spOn(spStock(), d).filter(r => plants.includes(r.plant)), un = spOn(spUnload(), d).filter(r => plants.includes(r.plant));
+    const st = spOn(spStock(), d).filter(r => plants.includes(r.plant));
+    // rakes received: FOIS (a rake inside the station counts as received), else the entered unloading figure
+    const rkPlants = plants.filter(p => (SP.data.rake_plants || SP.data.plants).includes(p)), rk = rkPlants.reduce((t, p) => t + (spRecd(p, d).n || 0), 0);
     return {d, rec: st.reduce((t, r) => t + (r.receipt || 0), 0), con: st.reduce((t, r) => t + (r.consumption || 0), 0),
-      av: st.length ? st.reduce((t, r) => t + (r.availability_days || 0), 0) / st.length : 0, rk: un.reduce((t, r) => t + (r.received || 0), 0)};
+      av: st.length ? st.reduce((t, r) => t + (r.availability_days || 0), 0) / st.length : 0, rk};
   });
   SP.combo = pts;
   return `<div class="card"><h2>Coal and rake movement</h2>
@@ -675,11 +677,12 @@ function spAfterRender() {
 const spShow = window.show;
 window.show = show = v => {
   appApplyAccess();
+  if (typeof APP_SOLAR_ONLY !== 'undefined' && APP_SOLAR_ONLY) return spShow('solar');   // outside solar-entry sign-in: the solar page only
   if (typeof SECTION !== 'undefined' && !appSeeSection(SECTION[v] || 'gen')) v = appCan('generation') ? 'home' : 'connect';
   return spShow(v);
 };
 appApplyAccess();
-if (!appCan('generation')) show('connect');
+if (!appCan('generation') && !(typeof APP_SOLAR_ONLY !== 'undefined' && APP_SOLAR_ONLY)) show('connect');
 
 // ---------------------------------------------------------------- Profile: how often the coal sheet is re-read
 

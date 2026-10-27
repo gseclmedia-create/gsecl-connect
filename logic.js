@@ -170,6 +170,18 @@ function httpGetBytes(url, timeoutSec) {
   });
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+/**
+ * Peak and minimum by 15-minute time block (as in the grid's accounts): readings [{m: minute of the day, v: MW}] are
+ * averaged per block and the highest / lowest block average is taken (the running block counts with its average
+ * so far). {pk, lo}: {v, m: block middle minute, b: block index 0-95, lbl: "19:00–19:15", n: readings}.
+ */
+function blockStat(pts) {
+  const acc = {};
+  (pts || []).forEach(p => { if (p.v === null || p.v === undefined || !isFinite(p.v)) return; const b = Math.floor(p.m / 15); if (b < 0 || b > 95) return; const a = acc[b] || (acc[b] = [0, 0]); a[0] += p.v; a[1]++; });
+  const hhmm = m => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const list = Object.keys(acc).map(b => ({v: acc[b][0] / acc[b][1], m: +b * 15 + 7.5, b: +b, lbl: hhmm(+b * 15) + '–' + hhmm(+b * 15 + 15), n: acc[b][1]}));
+  return {pk: list.reduce((x, p) => (!x || p.v > x.v ? p : x), null), lo: list.reduce((x, p) => (!x || p.v < x.v ? p : x), null)};
+}
 /** A unit counts as generating only above this. Gas units (Dhuvaran, Utran) read a few MW negative when
  *  stopped (auxiliary drawal), which would otherwise show as false generation: anything up to 2 MW is 0. */
 const RUN_MW = 2;
@@ -494,8 +506,9 @@ async function sldcHome() {
   const [res, d1] = await Promise.all([httpGet(SLDC_RT2_URL, 30), httpGet(SLDC_RT1_URL, 30)]);
   if (!res.ok) return {ok: false, error: res.error};
   // DISCOM drawal / schedule / DSM (optional; the summary still works without it).
-  let discoms = null;
+  let discoms = null, raw1 = null;
   try {
+    if (d1.ok) raw1 = JSON.parse(d1.body);
     if (d1.ok) discoms = JSON.parse(d1.body).map(r => ({name: r.StationName, drawal: sumParts(partNums(r.Drawal)),
       schedule: sumParts(partNums(r.Schedule)), dsm: sumParts(partNums(r.DSM))}));
   } catch (e) { discoms = null; }
@@ -511,7 +524,7 @@ async function sldcHome() {
   };
   const freq = parseFloat(j.FREQ), catered = sumParts(find(/Catered/i));
   if (!isFinite(freq) && catered === null) return {ok: false, error: 'SLDC grid summary had no frequency or catered value.'};
-  return {ok: true, fetched_at: nowText(), time: j.Time || null, raw2: {FREQ: j.FREQ, OtherData: j.OtherData || []},
+  return {ok: true, fetched_at: nowText(), time: j.Time || null, raw2: {FREQ: j.FREQ, OtherData: j.OtherData || []}, raw1: Array.isArray(raw1) ? raw1.slice(0, 20) : null,
     freq: isFinite(freq) ? {value: freq, unit: 'Hz'} : null, catered: catered !== null ? {value: catered, unit: 'MW'} : null, mix, discoms};
 }
 
