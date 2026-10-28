@@ -361,7 +361,15 @@ document.addEventListener('click', async e => {
     case 'tab': return kOpenTab(arg);
     case 'back': return kGo(null);
     case 'refresh': return kRefresh();
-    case 'auto': Rake.setAutoRefresh(!el.classList.contains('on')); return kRender();
+    case 'auto': {
+      const on = !el.classList.contains('on');
+      // the background refresh is background data: allowed first (Profile › Background data)
+      if (on && typeof bgState === 'function' && bgState() !== 'yes' && bgState() !== 'n/a') {
+        if (!confirm('Auto-refresh in the background needs background data. Allow GSECL Connect to read data while the app is closed?')) return;
+        bgSet(true);
+      }
+      Rake.setAutoRefresh(on); return kRender();
+    }
     case 'wipe': if (confirm('Clear the saved rakes and indents and read them again?')) { Rake.wipe(); K.data = null; kLoadCached(); kRefresh(); } return;
     case 'status': return kList({status: arg});
     case 'station': return kList({station: arg});
@@ -421,6 +429,6 @@ setInterval(() => {
   try {
     const sec = document.getElementById('v-coal') || document.querySelector('[data-section="coal"]');
     const open = sec ? sec.classList.contains('on') || sec.offsetParent !== null : false;
-    if (open && typeof hasRake === 'function' && hasRake() && appCan('rakes') && !K.busy && document.visibilityState === 'visible') kRefresh();
+    if (open && typeof appAuto === 'function' && appAuto() && typeof hasRake === 'function' && hasRake() && appCan('rakes') && !K.busy && document.visibilityState === 'visible') kRefresh();
   } catch (e) { /* next time */ }
 }, 2 * 60e3);

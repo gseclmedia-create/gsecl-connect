@@ -131,12 +131,28 @@
     return true;
   }
   function handle(ev) {
+    // a finger drag keeps reporting the element it started on: the element under the finger now
+    const under = ev.type === 'pointermove' && document.elementFromPoint ? document.elementFromPoint(ev.clientX, ev.clientY) : null;
+    const tg = under && under.closest && under.closest('svg') ? under : ev.target;
+    ev = {target: tg, clientX: ev.clientX, clientY: ev.clientY, type: ev.type};
     const svg = ev.target.closest && ev.target.closest('svg');
     if (!svg || !svg.viewBox || !svg.viewBox.baseVal || !svg.viewBox.baseVal.width || svg.viewBox.baseVal.width < 120) return false;
     const box = svg.parentElement;
     if (box && box.querySelector(':scope > .tip')) return false;   // the chart shows its own tips
     const tipped = ev.target.closest('[data-tip]');
-    if (tipped) { show(esc(tipped.dataset.tip).replace(/\n/g, '<br>'), ev.clientX, ev.clientY); return true; }
+    if (tipped) {
+      clear();
+      // a column of a time chart (data-cx): the crosshair at its time, the tip lists every series of that point
+      if (tipped.dataset.cx) {
+        const g = document.createElementNS(NS, 'g'), vl = document.createElementNS(NS, 'line'), H = svg.viewBox.baseVal.height;
+        g.setAttribute('class', 'ci-x');
+        vl.setAttribute('x1', tipped.dataset.cx); vl.setAttribute('x2', tipped.dataset.cx); vl.setAttribute('y1', 4); vl.setAttribute('y2', H - 18);
+        vl.setAttribute('stroke', 'currentColor'); vl.setAttribute('stroke-dasharray', '3 3'); vl.setAttribute('opacity', '.6');
+        g.appendChild(vl); svg.appendChild(g);
+      }
+      show(tipped.dataset.tiph || esc(tipped.dataset.tip).replace(/\n/g, '<br>'), ev.clientX, ev.clientY);
+      return true;
+    }
     if (ev.target.tagName === 'rect' && bar(svg, ev.target, ev)) return true;
     if (ev.target.tagName === 'circle' && ev.target.getAttribute('stroke-dasharray') && donut(svg, ev.target, ev)) return true;
     const rings = [...svg.querySelectorAll('circle[stroke-dasharray]')];

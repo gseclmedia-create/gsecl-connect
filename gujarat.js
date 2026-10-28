@@ -1,7 +1,7 @@
-// Gujarat Power: the same app as GSECL Connect, set up for the whole Gujarat power system (APP_MODE 'gujarat',
+// Gujarat Power: set up for the whole Gujarat power system (APP_MODE 'gujarat',
 // mode.js of the Gujarat Power build). Pages: Overview (the Gujarat page: live position, tomorrow's load forecast,
 // 14 days, trends, IEX), Stations (every station SLDC lists, by sector), Outages (all sectors), DISCOM (drawal vs
-// schedule) and Merit. Sign-in is the GSECL Connect account. Data: the same SLDC / IEX readings the page already takes.
+// schedule) and Merit. Sign-in with the GSECL employee account. Data: the same SLDC / IEX readings the page already takes.
 // Uses $, esc, fmt, niceTicks, S, show, SECTION, csvBtn, render, latestOutages from the page.
 
 const GJ = {sec: '', fuel: '', osec: '', otype: '', oq: '', mcls: '', open: new Set(), dis: []};

@@ -293,14 +293,19 @@ function wAdmin() {
 function wDevReq() {
   const d = W.data.devreq;
   if (!d) return W.busy ? conSpin() : '';
-  const req = r => `<div class="oq" style="--oc:var(--planned)"><div class="oq-h"><span class="nm">${esc(conName(r.name) || r.emp_no)}</span><span class="badge b-Planned">Waiting</span></div>
+  const req = r => r.kind === 'registration' ? `<div class="oq" style="--oc:var(--accent)"><div class="oq-h"><span class="nm">${esc(conName(r.name) || r.emp_no)}</span><span class="badge b-Running">New registration</span></div>
+      <div class="meta num"><div><span>Employee</span>${esc(r.emp_no)} · ${esc(r.station)}</div><div><span>Registered</span>${conDate(r.requested_at, true)}</div>
+        <div><span>On</span>📱 ${esc(r.device_name || '—')}</div><div><span>Access</span>waits for approval</div></div>
+      <div class="vals" style="font-size:12.5px;margin-top:6px">Signed in with the e-mailed code and set a password. Check that this is a GSECL employee before approving.</div>
+      <div style="display:flex;gap:8px;margin-top:8px">${wBtn('Approve', 'devok', r.id, true)} ${wBtn('Reject', 'devno', r.id)}</div></div>`
+    : `<div class="oq" style="--oc:var(--planned)"><div class="oq-h"><span class="nm">${esc(conName(r.name) || r.emp_no)}</span><span class="badge b-Planned">Waiting</span></div>
       <div class="meta num"><div><span>Employee</span>${esc(r.emp_no)} · ${esc(r.station)}</div><div><span>Asked</span>${conDate(r.requested_at, true)}</div>
         <div><span>New phone</span>📱 ${esc(r.device_name)}</div><div><span>Phones now</span>${esc(r.phones.map(x => x.name + (x.main ? ' (registered)' : '')).join(', ') || '—')}</div></div>
       <div style="display:flex;gap:8px;margin-top:8px">${wBtn('Approve', 'devok', r.id, true)} ${wBtn('Reject', 'devno', r.id)}</div></div>`;
-  const done = r => `<div class="nrow" style="cursor:default"><span class="sd" style="background:${r.status === 'approved' ? 'var(--run)' : 'var(--forced)'}"></span><div class="nb"><b>${esc(conName(r.name) || r.emp_no)} · ${esc(r.device_name)} · ${esc(r.status)}</b>
+  const done = r => `<div class="nrow" style="cursor:default"><span class="sd" style="background:${r.status === 'approved' ? 'var(--run)' : 'var(--forced)'}"></span><div class="nb"><b>${esc(conName(r.name) || r.emp_no)} · ${r.kind === 'registration' ? 'registration' : esc(r.device_name)} · ${esc(r.status)}</b>
       <div class="nt">${esc([r.emp_no, r.station, 'asked ' + (r.requested_at || '').slice(0, 16), r.decided_at && 'decided ' + r.decided_at.slice(0, 16) + ' by ' + r.decided_by, r.note].filter(Boolean).join(' · '))}</div></div></div>`;
   return wMsg() + `<div class="card"><h2>Waiting for approval (${d.pending.length})</h2>${d.pending.length ? '' : conEmpty('No request is waiting.')}
-      <div class="note-src">An employee asks from the new phone after signing in there with the password. After approval they sign in on it with the password and the e-mailed code; the registered phone keeps working.</div></div>`
+      <div class="note-src">New registration: a new employee signed in with the e-mailed code and set a password; they can use the app once approved (they are e-mailed). Another phone: an employee asks from the new phone after signing in there with the password; after approval they sign in on it with the password and the e-mailed code, and the registered phone keeps working.</div></div>`
     + d.pending.map(req).join('')
     + (d.decided.length ? `<div class="card"><h2>Decided</h2>${d.decided.map(done).join('')}</div>` : '');
 }
@@ -331,12 +336,22 @@ function wActivity() {
       <span class="vals num">${r.mins < 1 ? 'now' : r.mins < 60 ? r.mins + ' min ago' : esc(r.at.slice(11))}</span></div>
     <div class="vals">${esc([r.emp_no, r.designation, r.station, r.device && '📱 ' + r.device].filter(Boolean).join(' · '))}</div></div>`;
   const labels = d.days.map(x => conDate(x.date).replace(/ \d{4}$/, ''));
-  const blk = d.blocked_devices || [], al = d.security_alerts || [];
-  const security = `<div class="card"><h2>Security ${conMore(blk.length ? blk.length + ' device' + (blk.length > 1 ? 's' : '') + ' blocked' : 'no device blocked')}</h2>
+  // who used the app today (app on screen; the service sends the list, older scripts only the last 24 hours)
+  const todayIso = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  const usedToday = d.today || d.last24.filter(r => String(r.at).slice(0, 10) === todayIso);
+  const blk = d.blocked_devices || [], al = d.security_alerts || [], open = al.filter(a => !a.ack);
+  const when = a => `${esc(conDate(a.at))} ${esc(new Date(a.at).toLocaleTimeString('en-IN', {hour: '2-digit', minute: '2-digit', hour12: false}))}`;
+  // alerts nobody has acknowledged: highlighted, e-mailed and notified every 10 minutes until a super administrator acknowledges them
+  const alarm = open.length ? `<div class="card" style="border:2px solid var(--forced);background:color-mix(in srgb, var(--forced) 9%, var(--card))">
+      <h2 style="color:var(--forced)">⚠ ${open.length} security alert${open.length > 1 ? 's' : ''} to act on</h2>
+      ${open.slice(0, 10).map(a => `<div class="nrow" style="cursor:default"><span class="sd" style="background:var(--forced)"></span><div class="nb"><b>${esc(a.text)}</b><div class="nt">${when(a)}${a.reminders ? ' · reminded ' + a.reminders + '×' : ''}</div></div></div>`).join('')}
+      <div class="vals" style="font-size:12.5px;margin:6px 0">The super administrators are e-mailed and notified every 10 minutes (up to an hour) until the alerts are acknowledged.</div>
+      ${d.can_unblock ? `<button class="btn" data-wact="secack" style="margin:0;background:var(--forced);color:#fff;border-color:var(--forced)">Acknowledge (dealt with)</button>` : ''}</div>` : '';
+  const security = alarm + `<div class="card"><h2>Security ${conMore(blk.length ? blk.length + ' device' + (blk.length > 1 ? 's' : '') + ' blocked' : 'no device blocked')}</h2>
       <div class="vals" style="font-size:12.5px;margin-bottom:6px">A device that is refused ${'5'} times within an hour (unknown employee numbers, wrong passwords, forged sign-ins) and was never used by an employee is blocked at once; anyone added to the Google Sheet or its Drive folders is removed within 15 minutes. Super administrators get an e-mail.</div>
       ${blk.map(b => `<div class="srow" style="cursor:default"><div class="top"><span class="nm">⛔ ${esc(b.name || 'device')} <span class="muted" style="font-weight:400">${esc(b.id)}</span></span><span class="vals">${d.can_unblock ? `<button class="btn" data-wact="unblkdev" data-warg="${esc(b.id)}" style="margin:0;padding:4px 10px;color:var(--accent)">Unblock</button>` : ''}</span></div>
         <div class="vals">${esc(conDate(b.at))} ${esc(String(b.at).slice(11, 16))} · ${esc(b.why || '')}</div></div>`).join('')}
-      ${al.length ? `<div class="vals" style="margin-top:8px"><b>Recent alerts</b></div>${al.slice(0, 10).map(a => `<div class="nrow" style="cursor:default"><span class="sd" style="background:var(--forced)"></span><div class="nb"><div class="nt">${esc(conDate(a.at))} ${esc(String(a.at).slice(11, 16))} UTC · ${esc(a.text)}</div></div></div>`).join('')}` : '<div class="vals">No security alerts.</div>'}</div>`;
+      ${al.length ? `<details style="margin-top:8px"><summary class="vals"><b>Recent alerts (${al.length})</b></summary>${al.slice(0, 30).map(a => `<div class="nrow" style="cursor:default"><span class="sd" style="background:${a.ack ? 'var(--muted)' : 'var(--forced)'}"></span><div class="nb"><div class="nt">${when(a)} · ${esc(a.text)}${a.ack ? ` · <i>acknowledged by ${esc(a.ack.by)}</i>` : ''}</div></div></div>`).join('')}</details>` : '<div class="vals">No security alerts.</div>'}</div>`;
   // app and version on every phone (the service refuses versions older than the newest published one)
   const av = d.app_versions || [], vk = r => (r.app === 'gujarat' ? 'Gujarat Power' : r.app === 'web' ? 'Web' : 'GSECL Connect') + ' ' + r.version;
   const vcount = {}; av.forEach(r => { vcount[vk(r)] = (vcount[vk(r)] || 0) + 1; });
@@ -347,7 +362,7 @@ function wActivity() {
         <div class="vals">${esc(r.device || 'browser')} · last used ${esc(r.last_seen ? new Date(r.last_seen).toLocaleString('en-IN', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false}) : '—')}</div></div>`).join('')}</details></div>` : '';
   return security + versions + `<div class="card"><h2>Right now ${conMore('live = used the app in the last ' + d.live_minutes + ' min')}</h2>
       <div class="tstats" style="grid-template-columns:repeat(2,1fr)">
-        <div><span>Live now</span><b class="num pos">${fmt(d.live_count)}</b><small>employees</small></div>
+        <div><span>Live now</span><b class="num pos">${fmt(d.live_count)}</b><small>employees with the app open</small></div>
         <div><span>Used today</span><b class="num">${fmt(d.today_count)}</b><small>different employees</small></div>
         <div><span>Peak today</span><b class="num">${fmt(today.peak || 0)}</b><small>${today.peak_at ? 'at the same time, ' + esc(today.peak_at) : 'at the same time'}</small></div>
         <div><span>Sign-ins today</span><b class="num">${fmt(today.signins || 0)}</b><small>${today.refused ? `<span class="neg">${today.refused} refused / wrong</span>` : 'none refused'}</small></div>
@@ -355,15 +370,19 @@ function wActivity() {
       <div class="note-src">Registered phones: <b>${fmt(d.registered_phones)}</b> · one-phone rule: <b>${esc(d.device_policy === 'lock' ? 'on (another phone is refused until released)' : d.device_policy === 'replace' ? 'new phone replaces the old one' : 'off')}</b>; administrators may use several phones.</div></div>
     <div class="card"><h2>Last 14 days</h2>${tLine('actDays', labels, [{name: 'Peak live together', slot: 0, vals: d.days.map(x => x.peak)}, {name: 'Employees who used the app', slot: 1, vals: d.days.map(x => x.users)}, {name: 'Sign-ins', slot: 2, vals: d.days.map(x => x.signins)}, {name: 'Refused / wrong password', slot: 3, vals: d.days.map(x => x.refused)}], {h: 190, label: 'Login activity', xName: 'Date'})}
       ${tLegend([[tCol(0), 'Peak live together'], [tCol(1), 'Used the app'], [tCol(2), 'Sign-ins'], [tCol(3), 'Refused / wrong']])}</div>
-    <div class="card"><h2>Live now (${fmt(d.live.length)})</h2>${d.live.map(person).join('') || conEmpty('Nobody has used the app in the last ' + d.live_minutes + ' minutes.')}</div>
-    ${d.last24.length > d.live.length ? `<div class="card"><h2>Used in the last 24 hours (${fmt(d.last24.length)})</h2>${d.last24.filter(r => r.mins >= d.live_minutes).slice(0, 80).map(person).join('')}
-      ${csvBtn('act24', 'GSECL_Connect_used_last_24h', ['Employee no', 'Name', 'Designation', 'Station', 'Phone', 'Last used'], d.last24.map(r => [r.emp_no, r.name, r.designation, r.station, r.device, r.at]))}</div>` : ''}
-    <div class="card"><h2>Sign-in log ${conMore(fmt(ev.length) + ' events')}</h2>
+    <div class="card"><details open><summary style="font-weight:800;font-size:15px;cursor:pointer">Live now (${fmt(d.live.length)}) <span class="muted" style="font-weight:500;font-size:12px">app on screen in the last ${d.live_minutes} min</span></summary>
+      ${d.live.map(person).join('') || conEmpty('Nobody has had the app open in the last ' + d.live_minutes + ' minutes.')}</details></div>
+    <div class="card"><details><summary style="font-weight:800;font-size:15px;cursor:pointer">Used today (${fmt(usedToday.length)}) <span class="muted" style="font-weight:500;font-size:12px">different employees since 00:00</span></summary>
+      ${usedToday.slice(0, 150).map(person).join('') || conEmpty('Nobody has used the app today yet.')}
+      ${usedToday.length ? csvBtn('actToday', 'GSECL_Connect_used_today', ['Employee no', 'Name', 'Designation', 'Station', 'Phone', 'Last used'], usedToday.map(r => [r.emp_no, r.name, r.designation, r.station, r.device, r.at])) : ''}</details></div>
+    ${d.last24.length > usedToday.length ? `<div class="card"><details><summary style="font-weight:800;font-size:15px;cursor:pointer">Used in the last 24 hours (${fmt(d.last24.length)})</summary>${d.last24.filter(r => r.mins >= d.live_minutes).slice(0, 80).map(person).join('')}
+      ${csvBtn('act24', 'GSECL_Connect_used_last_24h', ['Employee no', 'Name', 'Designation', 'Station', 'Phone', 'Last used'], d.last24.map(r => [r.emp_no, r.name, r.designation, r.station, r.device, r.at]))}</details></div>` : ''}
+    <div class="card"><details ${W.sel.aevOpen ? 'open' : ''} data-wdet="aevOpen"><summary style="font-weight:800;font-size:15px;cursor:pointer">Sign-in log <span class="muted" style="font-weight:500;font-size:12px">${fmt(ev.length)} events · touch to ${W.sel.aevOpen ? 'close' : 'open'}</span></summary>
       <div class="chips" style="padding-bottom:4px">${W_EV.map(([k, l]) => `<button class="chip ${f === k ? 'on' : ''}" data-wact="aev" data-warg="${k}">${l}</button>`).join('')}</div>
       <input class="search" id="wActQ" type="search" placeholder="Filter by number, name, station or phone…" value="${esc(W.sel.aq2 || '')}" autocomplete="off" style="margin:4px 0 6px">
       <div id="wActList">${wActRows(ev)}</div>
       ${csvBtn('actLog', 'GSECL_Connect_sign_in_log', ['Time', 'Employee no', 'Name', 'Station', 'Event', 'Phone', 'Detail'], ev.map(e => [e.time, e.emp_no, e.name, e.station, e.event, e.device, e.detail]))}
-      <div class="note-src">Kept in the LoginLog tab of the Google Sheet. “older app” = signed in from app 3.6.0 or earlier, which sends no phone id.</div></div>`;
+      <div class="note-src">Kept in the LoginLog tab of the Google Sheet. “older app” = signed in from app 3.6.0 or earlier, which sends no phone id.</div></details></div>`;
 }
 const wActRows = ev => ev.slice(0, 120).map(e => `<div class="nrow" style="cursor:default"><span class="sd" style="background:${wEvCol[wEvKind(e.event)]}"></span><div class="nb"><b>${esc(conName(e.name) || e.emp_no)} · ${esc(e.event)}</b>
     <div class="nt">${esc([e.time.slice(0, 16), e.emp_no, e.station, e.device && '📱 ' + e.device, e.detail].filter(Boolean).join(' · '))}</div></div></div>`).join('') || conEmpty('No event matches.');
@@ -535,6 +554,12 @@ document.addEventListener('click', async e => {
       if (!r.ok) return alert(/unknown action/i.test(r.error) ? 'Update the GSECL Connect script in the Google Sheet (paste the new Code.gs and deploy a new version) to use blocking.' : r.error);
       alert(r.data.message); W.form = null; return wOpen('admin', true);
     }
+    case 'secack': {
+      if (!confirm('Acknowledge the open security alerts? Do this once they are looked into; the 10-minute reminders stop.')) return;
+      const r = await conCall('security_ack', {});
+      if (!r.ok) return alert(/unknown action/i.test(r.error) ? 'Update the GSECL Connect script (paste the new Code.gs and deploy a new version).' : r.error);
+      alert(r.data.message); if (typeof secCheck === 'function') secCheck(true); return wOpen('activity', true);
+    }
     case 'unblkdev': {
       if (!confirm('Unblock this device? It can try to sign in to GSECL Connect again.')) return;
       const r = await conCall('unblock_device', {id: arg});
@@ -678,3 +703,21 @@ document.addEventListener('click', async e => {
   }
   tsRender();
 });
+
+document.addEventListener('toggle', e => { const d = e.target; if (d && d.dataset && d.dataset.wdet) W.sel[d.dataset.wdet] = d.open; }, true);
+
+// ---------------------------------------------------------------- super administrators: open security alerts on the dashboard
+const SEC = {at: 0, open: []};
+/** Super administrators only: the alerts not yet acknowledged, as a red banner on the Generation dashboard. */
+async function secCheck(force) {
+  let me = {}; try { me = JSON.parse(hasNative('account') ? Native.account() : '{}') || {}; } catch (e) { me = {}; }
+  if (me.role !== 'superadmin' || typeof conCall !== 'function' || !hasConnect()) return;
+  if (!force && Date.now() - SEC.at < 60e3) return;
+  SEC.at = Date.now();
+  const r = await conCall('security_status', {}).catch(() => ({ok: false}));
+  if (r.ok && r.data) SEC.open = r.data.open || [];
+  const el = $('secBanner'); if (!el) return;
+  el.innerHTML = SEC.open.length ? `<div class="updb" data-secgo="1" style="background:var(--forced);color:#fff;cursor:pointer"><div><b>⚠ ${SEC.open.length} security alert${SEC.open.length > 1 ? 's' : ''} to act on</b><span style="color:#fff;opacity:.9">${esc(SEC.open[0].text.slice(0, 120))}</span></div><span class="go" style="background:#fff;color:var(--forced)">Review</span></div>` : '';
+}
+document.addEventListener('click', e => { if (e.target.closest && e.target.closest('[data-secgo]')) { show('connect'); if (typeof C !== 'undefined') C.tab = 'more'; setTimeout(() => wOpen('activity', true), 50); } });
+setTimeout(() => secCheck(true), 4000);

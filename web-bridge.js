@@ -56,7 +56,19 @@
 
   // ---------------------------------------------------------------- session
   const OTP_DAYS = 7;
-  const deviceId = (() => { let d = LS.get('gsecl_device'); if (!d || !/^[0-9a-f]{40}$/.test(d)) { d = [...crypto.getRandomValues(new Uint8Array(20))].map(x => x.toString(16).padStart(2, '0')).join(''); LS.set('gsecl_device', d); } return d; })();
+  // This browser's id: kept in the page storage and in a long-lived cookie, since iOS may clear one of them (an id lost
+  // anyway only means signing in again with the password and the e-mailed code; it is not taken as another phone).
+  const CK = {
+    get: k => { try { const m = document.cookie.match(new RegExp('(?:^|; )' + k + '=([0-9a-f]{40})')); return m ? m[1] : null; } catch (e) { return null; } },
+    set: (k, v) => { try { document.cookie = k + '=' + v + '; max-age=34560000; path=/; SameSite=Strict' + (location.protocol === 'https:' ? '; Secure' : ''); } catch (e) { /* none */ } },
+  };
+  const deviceId = (() => {
+    let d = LS.get('gsecl_device');
+    if (!d || !/^[0-9a-f]{40}$/.test(d)) d = CK.get('gsecl_device');
+    if (!d || !/^[0-9a-f]{40}$/.test(d)) d = [...crypto.getRandomValues(new Uint8Array(20))].map(x => x.toString(16).padStart(2, '0')).join('');
+    LS.set('gsecl_device', d); CK.set('gsecl_device', d);   // both again (and the cookie's time renewed) at every visit
+    return d;
+  })();
   const deviceName = (() => { const u = navigator.userAgent; const m = /iPhone|iPad|Android|Macintosh|Windows/.exec(u); return ((m ? (m[0] === 'Macintosh' ? 'Mac' : m[0]) : 'Browser') + ' (web)').slice(0, 60); })();
   const Session = {
     get token() { return SS.get('token'); },
@@ -94,7 +106,8 @@
     const body = Object.assign({}, params || {}, { action });
     if (Session.token) body.token = Session.token;
     body.device_id = deviceId; body.device_name = deviceName;
-    body.app_kind = 'web'; body.app_ver = CFG.version || '';   // the service can refuse an out-of-date copy and lists the versions in use
+    body.app_kind = 'web'; body.app_ver = CFG.version || '';
+    body.fg = document.visibilityState === 'visible' ? 1 : 0;   // only a page on screen counts as "live"    // the service can refuse an out-of-date copy and lists the versions in use
     let j;
     try {
       const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 90000);

@@ -33,14 +33,17 @@
 
   // ---------------------------------------------------------------- sign-in screen
   const L = { mode: 'signin', method: 'email', codeSent: false, busy: false, masked: '', totp: false, sms: false, inApp: false };
-  const TITLES = { signin: 'Sign in', first: 'Register / first sign-in', reset: 'Reset password', verify: 'Confirm it is you', newpw: 'Choose your password', change: 'Change password' };
+  const TITLES = { signin: 'Sign in', first: 'Register / first sign-in', reset: 'Reset password', verify: 'Confirm it is you', newpw: 'Choose your password', change: 'Change password', waiting: 'Waiting for approval' };
   const INFO = {
     signin: 'Use your GSECL employee number and GSECL Connect password.',
     first: 'Enter your employee number. A 6-digit code is e-mailed to the address registered for you; then you choose your own password.',
     reset: 'Enter your employee number. A 6-digit code is e-mailed to the address registered for you; then you choose a new password.',
     verify: '', newpw: 'Your e-mail is confirmed. Choose your new password: at least 8 characters, with letters and numbers, without your employee number.',
     change: 'Changing the password signs you out on your other devices.',
+    waiting: 'Your registration has been sent to the super administrator. You can use GSECL Connect once it is approved; you will get an e-mail. Then tap “Check again”.',
   };
+  /** A registration waiting for (or refused) approval by a super administrator. */
+  const waits = () => { const a = ((S().user || {}).approval) || 'approved'; return a !== 'approved'; };
 
   function build() {
     const box = document.createElement('div');
@@ -95,12 +98,13 @@
     if (!$('webLogin')) build();
     L.mode = mode; L.codeSent = false; L.method = mode === 'verify' && L.totp ? 'totp' : 'email';
     const vis = { signin: ['wlEmp', 'wlPass', 'wlForgot', 'wlReg', 'wlRegNote'], first: ['wlEmp', 'wlBack'], reset: ['wlEmp', 'wlBack'],
-      verify: ['wlOtp', 'wlResend', 'wlLeave'], newpw: ['wlNew', 'wlNew2', 'wlLeave'], change: ['wlCur', 'wlNew', 'wlNew2', 'wlLeave'] }[mode];
+      verify: ['wlOtp', 'wlResend', 'wlLeave'], newpw: ['wlNew', 'wlNew2', 'wlLeave'], change: ['wlCur', 'wlNew', 'wlNew2', 'wlLeave'], waiting: ['wlLeave'] }[mode];
     ['wlEmp', 'wlPass', 'wlCur', 'wlNew', 'wlNew2', 'wlOtp', 'wlResend', 'wlBack', 'wlLeave', 'wlForgot', 'wlReg', 'wlRegNote'].forEach(i => { $(i).hidden = !vis.includes(i); });
     $('wlDev').hidden = true;
     $('wlTitle').textContent = TITLES[mode];
     $('wlInfo').textContent = INFO[mode];
-    $('wlGo').textContent = { signin: 'Sign in', first: 'Send code to my e-mail', reset: 'Send code to my e-mail', verify: 'Verify', newpw: 'Save password', change: 'Save password' }[mode];
+    $('wlGo').textContent = { signin: 'Sign in', first: 'Send code to my e-mail', reset: 'Send code to my e-mail', verify: 'Verify', newpw: 'Save password', change: 'Save password', waiting: 'Check again' }[mode];
+    if (mode === 'waiting' && ((S().user || {}).approval) === 'rejected') $('wlInfo').textContent = 'Your registration for GSECL Connect was not approved. Please contact the administrator.';
     $('wlLeave').textContent = mode === 'change' ? 'Cancel' : 'Sign out';
     ['wlPass', 'wlCur', 'wlNew', 'wlNew2', 'wlOtp'].forEach(i => { $(i).value = ''; });
     say('', false); refresh();
@@ -127,6 +131,7 @@
     if (L.mode === 'signin') return signIn();
     if (L.mode === 'first' || L.mode === 'reset') return L.codeSent ? verifyCode(true) : requestCode();
     if (L.mode === 'verify') return verifyCode(false);
+    if (L.mode === 'waiting') return checkApproval();
     return savePassword();
   }
 
@@ -185,7 +190,7 @@
     working(false);
     if (!r.ok || !r.data.token || !r.data.user) return say(r.error || 'The code could not be checked.', true);
     S().signIn(r.data.token, r.data.user, true);
-    if (S().mustChange) show('newpw'); else startApp();
+    if (S().mustChange) show('newpw'); else if (waits()) show('waiting'); else startApp();
   }
 
   async function savePassword() {
@@ -199,7 +204,20 @@
     working(false);
     if (!r.ok || !r.data.token) return say(r.error || 'Could not change the password.', true);
     S().passwordChanged(r.data.token);
+    if (r.data.pending_approval) { const u = S().user || {}; u.approval = r.data.pending_approval; S().updateUser(u); show('waiting'); return say(r.data.message || '', false); }
     if (L.inApp) { $('webLogin').remove(); L.inApp = false; window.webToast && window.webToast('Password changed'); } else startApp();
+  }
+
+  /** Waiting for approval: asks the service again (the answer of "me" says approved, pending or rejected). */
+  async function checkApproval() {
+    working(true, 'Checking…');
+    const r = await api('me');
+    working(false);
+    if (!r.ok || !r.data || !r.data.user) return say(r.error || 'Could not check. Try again in a moment.', true);
+    S().updateUser(r.data.user);
+    if (!waits()) return startApp();
+    show('waiting');
+    say(r.data.user.approval === 'rejected' ? 'Not approved.' : 'Not approved yet. You will get an e-mail when it is.', r.data.user.approval === 'rejected');
   }
 
   function leave() {
@@ -218,6 +236,7 @@
     if (!s.isLoggedIn) { show('signin'); if (why) say(/blocked/i.test(why) ? why : 'You were signed out: the password was changed, the account was updated, or it was signed in on another device. Please sign in again.', true); return; }
     if (!s.otpFresh) { L.totp = !!((s.user || {}).two_step || {}).totp; show('verify'); if (!L.totp) say('Tap “Didn’t get the code? Send a new one” for a code by e-mail.', false); return; }
     if (s.mustChange) return show('newpw');
+    if (waits()) { show('waiting'); return checkApproval(); }
     startApp();
   })();
 

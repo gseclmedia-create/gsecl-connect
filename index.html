@@ -339,6 +339,9 @@
   nav.bn { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); padding: 6px 4px 8px; z-index: 10; box-shadow: 0 -4px 16px rgba(15, 27, 45, .06); }
   nav.bn button { border: 0; background: none; font: inherit; font-size: 10.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 0; position: relative; }
   nav.bn button svg { width: 22px; height: 22px; }
+  /* inside the native shell of the Android app the native bar replaces this one */
+  html.nshell nav.bn { display: none !important; }
+  .card.dim{opacity:.55} html.nshell body { padding-bottom: 16px; }
   nav.bn button.on { color: var(--accent); }
   nav.bn button.on::before { content: ""; position: absolute; top: -6px; width: 28px; height: 3px; border-radius: 3px; background: var(--accent); }
   @media (max-width: 380px) { nav.bn button { font-size: 9.5px; letter-spacing: -.01em; } }
@@ -549,9 +552,11 @@
   <!-- ================= Dashboard ================= -->
   <section class="view on" id="v-home">
     <div id="updBanner"></div>
+    <div id="secBanner"></div>
     <!-- New generation dashboard (3.9.1); the earlier one is kept in GSECLGen/backup-dashboard-3.9.0. -->
     <div id="gdHero"><div class="sk" style="height:250px;border-radius:14px;margin-bottom:12px"></div></div>
     <div class="card" id="gdToday"><h2>Today so far</h2><div class="sk" style="height:150px"></div></div>
+    <div class="card" id="gdSrc"></div>
     <div id="gdFuel"></div>
     <div class="card" id="gdPaf"></div>
     <div class="card"><h2>Station-wise position <span class="more" data-go="stations">Details ›</span></h2><div id="gdTable"><div class="sk" style="height:200px"></div></div></div>
@@ -594,6 +599,7 @@
       <div class="glist" id="gujList"><div class="sk" style="height:90px;grid-column:1/-1"></div></div>
       <div id="discoms"></div>
     </div>
+    <div class="card" id="gujSrc"></div>
     <div class="card" id="gujOd"></div>
 
     <div class="card" id="loadFc"><h2>Tomorrow's load forecast · Gujarat catered</h2><div class="sk" style="height:220px"></div></div>
@@ -604,6 +610,7 @@
       <h2>Trends <span class="more muted" id="trendNote" style="font-weight:500;font-size:11.5px"></span></h2>
       <div class="chips" id="trendMetric" style="padding-bottom:6px"><button class="chip on" data-metric="freq">Frequency</button><button class="chip" data-metric="catered">Guj. Catered</button><button class="chip" data-metric="gen">GSECL Gen</button><button class="chip" data-metric="mix">Thermal · Solar</button></div>
       <div class="chips" id="trendBasis" hidden></div>
+      <div id="trendDay"></div>
       <div class="chips" id="trendRange"></div>
       <div id="trendCustom" hidden style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:end;margin-bottom:8px">
         <label style="font-size:11px;color:var(--muted)">From<input class="search" id="tcFrom" type="datetime-local" style="margin:2px 0 0;padding:8px"></label>
@@ -698,8 +705,11 @@
     <div class="card" id="meCard"></div>
     <div class="card">
       <h2>Settings</h2>
+      <div class="tg" style="border-top:0;padding-top:0"><div><b>Auto-refresh</b><span>Off: the data is read when the app is opened and when you tap Refresh. On: read again all the time while the app is open, as set below.</span></div><button class="sw-t" id="autoSw" aria-label="Auto-refresh"></button></div>
+      <div id="refBox" hidden>
       <div class="set-row"><div><b>Refresh every</b><span>GSECL feed and SLDC data. Outages and IEX refresh every 5 min.</span></div><b class="val num" id="refVal">60 s</b></div>
       <input type="range" id="refRange" min="5" max="60" step="5" value="60" aria-label="Refresh interval in seconds">
+      </div>
       <div class="set-row" id="coalSyncRow"><div><b>Coal data sync</b><span>How often coal stock and rake unloading entries are re-read from the Google Sheet while a Coal stock page is open.</span></div></div>
       <div class="seg" id="coalSyncSeg" style="grid-template-columns:repeat(5,1fr)"><button data-coalsync="30">30 s</button><button data-coalsync="60">1 min</button><button data-coalsync="120">2 min</button><button data-coalsync="300">5 min</button><button data-coalsync="0">Off</button></div>
       <div class="set-row"><div><b>Theme</b></div></div>
@@ -722,6 +732,10 @@
       <div class="tg"><div><b>Unit synchronised</b><span>A GSECL unit starts generating after being at 0 MW.</span></div><button class="sw-t" data-pref="sync" aria-label="Unit synchronised notifications"></button></div>
       <div class="tg"><div><b>Planned and other outages</b><span>A planned outage, reserve shutdown or other outage is added or changed, or a unit leaves the outage list.</span></div><button class="sw-t" data-pref="other" aria-label="Other outage notifications"></button></div>
       <p class="muted" style="font-size:12px;margin:8px 0 0">Checked on every refresh while the app is open, and in the background as set below.</p>
+    </div>
+    <div class="card" id="bgCard" hidden>
+      <h2>Background data</h2>
+      <div class="tg" style="border-top:0;padding-top:0"><div><b>Read data while the app is closed</b><span id="bgNote"></span></div><button class="sw-t" id="bgSw" aria-label="Background data"></button></div>
     </div>
     <div class="card" id="monCard">
       <h2>Background monitoring</h2>
@@ -763,6 +777,7 @@
 <script type="text/x-app" data-src="app-main-1.js"></script>
 <script type="text/x-app" data-src="mode.js"></script>
 <script type="text/x-app" data-src="logic.js"></script>
+<script type="text/x-app" data-src="daypick.js"></script>
 <script type="text/x-app" data-src="app-main-2.js"></script>
 <script type="text/x-app" data-src="dsm.js"></script>
 <script type="text/x-app" data-src="web-dsm.js"></script>
@@ -781,6 +796,7 @@
 <script type="text/x-app" data-src="coalstock.js"></script>
 <script type="text/x-app" data-src="dsmlive.js"></script>
 <script type="text/x-app" data-src="hysol.js"></script>
+<script type="text/x-app" data-src="srcmix.js"></script>
 <script type="text/x-app" data-src="gujtrend.js"></script>
 <script type="text/x-app" data-src="chartint.js"></script>
 <script src="config.js"></script>

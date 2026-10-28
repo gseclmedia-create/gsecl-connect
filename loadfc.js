@@ -1,6 +1,6 @@
 // Gujarat page: management summary (hero) and the next-day load forecast of Gujarat catered demand.
 //
-// Forecast, block by block (96 blocks of 15 minutes), from the daily load profiles GSECL Connect keeps (LoadProfile tab,
+// Forecast, block by block (96 blocks of 15 minutes), from the daily load profiles the service keeps (LoadProfile tab,
 // the same for every device) and the Open-Meteo temperature forecast for Ahmedabad, Surat, Vadodara and Rajkot:
 //   1. similar days: the same weekday of the last weeks (Sundays and holidays together; Saturdays apart), median per block;
 //   2. weather: + (temperature of the day − temperature of those similar days) × the MW-per-°C learnt from the history;
@@ -95,7 +95,7 @@ async function lfLoad(force) {
   LF.busy = false;
   if (a && a.ok && a.data && Array.isArray(a.data.days)) LF.acc = a.data.days;
   if (r.ok) { LF.data = r.data; LF.at = Date.now(); LF.err = ''; }
-  else LF.err = /unknown action/i.test(r.error) ? 'The load forecast needs the updated GSECL Connect script (new Code.gs).' : r.error;
+  else LF.err = /unknown action/i.test(r.error) ? 'The load forecast needs the updated service script (new Code.gs).' : r.error;
   LF.fc = null; lfRender(); lfHeroRender(); lfDaysRender(); lfAccRender(); if (typeof gtRender === 'function') gtRender();
 }
 /** Daily mean temperature (°C, population-weighted over four cities) for the last 92 days and the next two. */
@@ -176,11 +176,11 @@ function lfTuneFactors() {
   return {f: sm, n: rows.length, avg: (lfMean(sm) - 1) * 100};
 }
 const lfDm = iso => new Date(iso + 'T12:00:00').toLocaleDateString('en-IN', {day: '2-digit', month: 'short'});
-/** The "Forecast vs actual" card (markup works in GSECL Connect and Gujarat Power). */
+/** The "Forecast vs actual" card (markup shared by both apps). */
 function lfAccHtml() {
   const rows = lfAccRows();
   const head = `<h2>Forecast vs actual · Gujarat catered</h2>`;
-  if (!LF.acc) return head + `<div class="empty">${LF.busy ? 'Reading…' : 'The issued forecasts are kept from now on (they need the updated GSECL Connect script); the comparison appears after the first forecast day has passed.'}</div>`;
+  if (!LF.acc) return head + `<div class="empty">${LF.busy ? 'Reading…' : 'The issued forecasts are kept from now on (they need the updated service script); the comparison appears after the first forecast day has passed.'}</div>`;
   if (!rows.length) return head + `<div class="empty">The first issued forecast is compared once its day has begun (${LF.acc.length ? 'next: ' + lfDm(LF.acc[LF.acc.length - 1].date) : 'none kept yet'}).</div>`;
   const full = rows.filter(r => r.full), last = full.slice(-30);
   const day = rows.find(r => r.date === LF.accDay) || rows[rows.length - 1];
@@ -232,7 +232,7 @@ Peak ${r.pkF ? fmt(r.pkF.v) : '—'} forecast · ${r.pkA ? fmt(r.pkA.v) : '—'}
     ${typeof csvBtn === 'function' ? csvBtn('lfAcc', 'Gujarat_forecast_vs_actual', ['Date', 'Average error %', 'Bias %', 'Peak forecast MW', 'Peak actual MW', 'Peak forecast time', 'Peak actual time', 'Energy forecast MU', 'Energy actual MU', 'Within 80% range %'],
       rows.map(r => [r.date, r.mape.toFixed(2), r.bias.toFixed(2), r.pkF ? Math.round(r.pkF.v) : '', r.pkA ? Math.round(r.pkA.v) : '', r.pkF ? hm(r.pkF.b) : '', r.pkA ? hm(r.pkA.b) : '', r.muF ? r.muF.toFixed(2) : '', r.muA ? r.muA.toFixed(2) : '', r.inBand === null ? '' : r.inBand.toFixed(0)])) : ''}`;
 }
-/** GSECL Connect: the card under the forecast. */
+/** The card under the forecast (Gujarat tab). */
 function lfAccRender() { const box = $('loadAcc'); if (box) box.innerHTML = lfAccHtml(); }
 
 // ---------------------------------------------------------------- Gujarat summary (management view)
@@ -351,9 +351,9 @@ function lfRender() {
   const box = $('loadFc');
   if (!box) return;
   const head = `<h2>Tomorrow's load forecast · Gujarat catered <span class="more" data-lfref="1" style="cursor:pointer">Refresh</span></h2>`;
-  if (!LF.data) { box.innerHTML = head + (LF.busy ? '<div class="sk" style="height:220px"></div>' : `<div class="empty">${esc(LF.err || 'Sign in to GSECL Connect for the load forecast.')}</div>`); return; }
+  if (!LF.data) { box.innerHTML = head + (LF.busy ? '<div class="sk" style="height:220px"></div>' : `<div class="empty">${esc(LF.err || 'Sign in for the load forecast.')}</div>`); return; }
   const fc = lfCompute();
-  if (!fc || fc.none) { box.innerHTML = head + '<div class="empty">Not enough daily load profiles yet (they are built from the readings GSECL Connect keeps; a few days are needed).</div>'; return; }
+  if (!fc || fc.none) { box.innerHTML = head + '<div class="empty">Not enough daily load profiles yet (they are built from the readings the app keeps; a few days are needed).</div>'; return; }
   const {f, bt, band, tomorrow, days} = fc, st = lfStats(f.fc), today = days[fc.today], yday = days[lfAdd(fc.today, -1)];
   const lastSame = f.sim[0] ? days[f.sim[0]] : null, sameSt = lastSame ? lfStats(lastSame.c) : null;
   const typeTxt = {W: 'working day', S: 'Saturday', H: 'Sunday / holiday'}, dname = new Date(tomorrow + 'T12:00:00').toLocaleDateString('en-IN', {weekday: 'long', day: '2-digit', month: 'short'});
@@ -388,7 +388,7 @@ function lfRender() {
       <span><i style="width:16px;height:3px;background:var(--brand2)"></i>Today</span><span><i style="width:16px;height:0;border-top:2px dashed var(--muted)"></i>Yesterday</span>
       ${lastSame && f.sim[0] !== lfAdd(fc.today, -1) ? `<span><i style="width:16px;height:0;border-top:2px dotted var(--s1)"></i>Last ${esc(typeTxt[f.type])} (${esc(f.sim[0].slice(8))}/${esc(f.sim[0].slice(5, 7))})</span>` : ''}</div>
     <div class="note-src">How: median of similar days (${f.sim.map(d => d.slice(8) + '/' + d.slice(5, 7)).join(', ')}), weather ${f.slope ? `${fmt(f.slope, 0)} MW per °C (${f.tT !== null && f.tSim !== null ? (f.tT >= f.tSim ? '+' : '−') + fmt(Math.abs(f.tT - f.tSim), 1) + ' °C vs those days' : 'no temperature'})` : 'effect not significant yet'}, recent level ${f.level >= 1 ? '+' : '−'}${fmt(Math.abs(f.level - 1) * 100, 1)}%${f.tune ? `, fine-tuned from ${f.tune.n} days of forecast vs actual (${f.tune.avg >= 0 ? '+' : '−'}${fmt(Math.abs(f.tune.avg), 1)}% on average)` : ''}.
-      Holidays: built-in fixed dates plus the AppSettings list HOLIDAYS (festivals such as Diwali). Profiles from the readings GSECL Connect keeps; weather Open-Meteo. A planning guide, not SLDC's forecast.</div>
+      Holidays: built-in fixed dates plus the AppSettings list HOLIDAYS (festivals such as Diwali). Profiles from the readings the app keeps; weather Open-Meteo. A planning guide, not SLDC's forecast.</div>
     ${csvBtn('loadFc', 'Gujarat_load_forecast_' + tomorrow, ['Block', 'Time', 'Forecast MW', 'Low (80%) MW', 'High (80%) MW', 'Today MW', 'Yesterday MW'],
       f.fc.map((v, b) => [b + 1, lfHm(b), v === null ? null : Math.round(v), band[b] ? Math.round(band[b][0]) : null, band[b] ? Math.round(band[b][1]) : null, today?.c?.[b] ?? null, yday?.c?.[b] ?? null]))}`;
   lfAccRender();

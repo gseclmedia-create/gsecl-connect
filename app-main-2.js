@@ -90,6 +90,7 @@ function genPush() {
     rt: g?.ok && Array.isArray(g.rt_rows) ? g.rt_rows : null,
     rt2: h?.ok && h.raw2 ? h.raw2 : null,
     rt1: h?.ok && Array.isArray(h.raw1) ? h.raw1 : null,     // DISCOM / Gujarat-at-periphery drawal against schedule
+    units: g?.ok ? (() => { const u = {}; for (const s of g.stations) for (const b of s.blocks) for (const x of b.units) if (x.mw !== null) u[x.key] = x.mw; return u; })() : null,   // unit trends of other phones
     iex: S.iex?.ok ? {date: isoDay(Date.now()), rtm: S.iex.rtm || [], dam: S.iex.dam || []} : null,     // block prices for the DSM estimate
     outages: o?.ok ? (o.rows || o.allRows).map(r => ({unit: r.unit, type: r.type, cap: r.cap || '', since: r.since || '', back: r.revised || r.schedule || '', reason: r.reason || ''})) : null,
   }).catch(() => {});
@@ -160,13 +161,28 @@ async function historyBackfill(force) {
   if (Native.historyMerge(csv) > 0) { trendKey = ''; if (typeof gdHist !== 'undefined') gdHist.key = ''; render(); }
 }
 setTimeout(() => historyBackfill(true), 12000);
-setInterval(() => historyBackfill(false), 5 * 60e3);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) historyBackfill(false); });
+setInterval(() => { if (appAuto()) historyBackfill(false); }, 5 * 60e3);
+
+/** Auto-refresh (Profile › Settings): off by default; then the data is read when the app is opened and on Refresh only. */
+function appAuto() { return !!(S.set && S.set.autoRefresh); }
+/** The app comes to the front again (from the app, or the page becoming visible): everything is read again. */
+let appOpenAt = Date.now();
+function onAppOpen() {
+  if (window.SOLAR_ONLY || Date.now() - appOpenAt < 20e3) return;
+  appOpenAt = Date.now();
+  refreshAll();
+  setTimeout(() => liveSync(), 8000);
+  historyBackfill(false);
+  if (typeof dpDaysLoad === 'function') dpDaysLoad();
+  if (typeof secCheck === 'function') secCheck();
+}
+window.onAppResume = onAppOpen;
+document.addEventListener('visibilitychange', () => { if (!document.hidden) onAppOpen(); });
 
 /** For the Coal page: its own FOIS reading to share, or a request for another phone's. */
 window.liveMine = (src, obj) => { LIVE.mine[src] = {at: Date.now(), res: obj}; };
 window.liveWant = src => liveSync([src]);
-setInterval(() => liveSync(), 60e3);
+setInterval(() => { if (appAuto()) liveSync(); }, 60e3);
 setTimeout(() => liveSync(), 8000);
 
 /** SLDC rows of units the GSECL feed shows generating (above 2 MW) leave the outage list: the unit is back. */
@@ -308,24 +324,37 @@ function gdHeroHtml(g) {
     </div></div>`;
 }
 
+const gdTodayRedraw = () => { if ($('gdToday')) $('gdToday').innerHTML = gdTodayHtml(); };
 function gdTodayHtml() {
-  if (!hasNative('historyRead')) return '<h2>Today so far</h2><div class="empty">Daily figures are worked out from the readings the app stores on the phone.</div>';
-  const now = new Date(), t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), y0 = t0 - 864e5;
-  const key = Math.floor(Date.now() / 60e3) + '';
-  if (gdHist.key !== key) gdHist = {key, rows: parseRows(Native.historyRead(String(y0)))};
-  const src = gdRows(gdHist.rows, t0);
-  const A = gdDay(src.rows, t0), B = gdDay(src.rows, y0), nowM = (Date.now() - t0) / 60e3;
-  if (A.length < 2) return '<h2>Today so far</h2><div class="empty">Not enough readings yet today. They are recorded while the app is open and by the background monitor (Profile).</div>';
+  // Today (the readings on this device or the shared ones), or another day chosen (the readings kept by the service)
+  const iso = typeof dpGet === 'function' ? dpGet('gtoday') : '', isToday = !iso || iso === dpToday(), chips = typeof dpChips === 'function' ? dpChips('gtoday') : '';
+  const title = isToday ? 'Today so far' : dpLabel(iso), prevIso = isToday ? '' : dpIso(dpStart(iso) - 864e5 + 3600e3);
+  const dayName = isToday ? 'Today' : dpLabel(iso), prevName = isToday ? 'Yesterday' : dpLabel(prevIso);
+  let t0, y0, src, nowM;
+  if (isToday) {
+    if (!hasNative('historyRead')) return '<h2>Today so far</h2>' + chips + '<div class="empty">Daily figures are worked out from the readings the app stores on the phone.</div>';
+    const now = new Date(); t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); y0 = t0 - 864e5;
+    const key = Math.floor(Date.now() / 60e3) + '';
+    if (gdHist.key !== key) gdHist = {key, rows: parseRows(Native.historyRead(String(y0)))};
+    src = gdRows(gdHist.rows, t0); nowM = (Date.now() - t0) / 60e3;
+  } else {
+    t0 = dpStart(iso); y0 = dpStart(prevIso); nowM = 1440;
+    const a = dpDayRows(iso, gdTodayRedraw), b = dpDayRows(prevIso, gdTodayRedraw);
+    if (!a || !b) return `<h2>${esc(title)}</h2>${chips}<div class="sk" style="height:150px"></div>`;
+    src = {rows: b.concat(a), shared: true};
+  }
+  const A = gdDay(src.rows, t0), B = gdDay(src.rows, y0);
+  if (A.length < 2) return `<h2>${esc(title)}</h2>${chips}<div class="empty">${isToday ? 'Not enough readings yet today. They are recorded while the app is open and by the background monitor (Profile).' : 'No readings kept for this day.'}</div>`;
   const eA = gdEnergy(A), eB = gdEnergy(B, nowM), {pk, lo} = blockStat(A);   // peak / low by 15-minute block
   const avg = gdAvg(A), hm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
   const ch = eB ? (eA - eB) / eB * 100 : null;
   const W = 340, H = 120, L = 34, R = 6, Tp = 8, Bt = 18, all = A.concat(B).map(p => p.v), hi = Math.max(...all) * 1.06, lw = Math.min(...all) * 0.94;
   const x = m => L + m / 1440 * (W - L - R), y = v => Tp + (hi - v) / ((hi - lw) || 1) * (H - Tp - Bt);
   const line = l => { let d = '', prev = null; l.forEach(p => { d += (prev !== null && p.m - prev <= 30 ? 'L' : 'M') + x(p.m).toFixed(1) + ',' + y(p.v).toFixed(1); prev = p.m; }); return d; };
-  return `<h2>Today so far <span class="more muted" style="font-weight:500;font-size:11.5px">${src.shared ? 'GSECL Connect · ' : 'this device · '}${A.length} readings</span></h2>
+  return `<h2>${esc(title)} <span class="more muted" style="font-weight:500;font-size:11.5px">${src.shared ? 'GSECL Connect · ' : 'this device · '}${A.length} readings</span></h2>${chips}
     <div class="tstats" style="grid-template-columns:repeat(4,1fr)">
       <div><span>Energy</span><b class="num">${fmt(eA, 2)}</b><small>MU till ${hm(A[A.length - 1].m)}</small></div>
-      <div><span>vs yesterday</span><b class="num ${ch === null ? '' : ch >= 0 ? 'pos' : 'neg'}">${ch === null ? '—' : (ch >= 0 ? '+' : '−') + fmt(Math.abs(ch), 1) + '%'}</b><small>${eB ? fmt(eB, 2) + ' MU same time' : 'no data'}</small></div>
+      <div><span>vs ${isToday ? 'yesterday' : 'day before'}</span><b class="num ${ch === null ? '' : ch >= 0 ? 'pos' : 'neg'}">${ch === null ? '—' : (ch >= 0 ? '+' : '−') + fmt(Math.abs(ch), 1) + '%'}</b><small>${eB ? fmt(eB, 2) + ' MU same time' : 'no data'}</small></div>
       <div><span>Peak (15-min)</span><b class="num">${fmt(pk.v)}</b><small>MW in ${pk.lbl}</small></div>
       <div><span>Average</span><b class="num">${fmt(avg)}</b><small>low ${fmt(lo.v)} in ${lo.lbl}</small></div>
     </div>
@@ -334,11 +363,11 @@ function gdTodayHtml() {
       ${[0, 6, 12, 18, 24].map((h, i) => `<text class="ax" x="${x(h * 60)}" y="${H - 4}" text-anchor="${i === 0 ? 'start' : i === 4 ? 'end' : 'middle'}">${String(h).padStart(2, '0')}:00</text>`).join('')}
       <path d="${line(B)}" fill="none" style="stroke:var(--muted)" stroke-width="1.6" stroke-dasharray="4 3"/>
       <path d="${line(A)}" fill="none" style="stroke:var(--accent)" stroke-width="2.4" stroke-linejoin="round"/>
-      <line x1="${x(nowM)}" x2="${x(nowM)}" y1="${Tp}" y2="${H - Bt}" style="stroke:var(--brand2)" stroke-width="1" stroke-dasharray="2 2"/>
+      ${isToday ? `<line x1="${x(nowM)}" x2="${x(nowM)}" y1="${Tp}" y2="${H - Bt}" style="stroke:var(--brand2)" stroke-width="1" stroke-dasharray="2 2"/>` : ''}
     </svg></div>
-    <div class="keyline"><span><i style="width:16px;height:3px;background:var(--accent)"></i>Today</span><span><i style="width:16px;height:0;border-top:2px dashed var(--muted)"></i>Yesterday</span><span>MW · SLDC GSECL total</span></div>
+    <div class="keyline"><span><i style="width:16px;height:3px;background:var(--accent)"></i>${esc(dayName)}</span><span><i style="width:16px;height:0;border-top:2px dashed var(--muted)"></i>${esc(prevName)}</span><span>MW · SLDC GSECL total</span></div>
     ${gdGujHtml(src.rows, t0, hm, src.shared)}
-    ${csvBtn('gdToday', 'GSECL_generation_today', ['Time', 'Today MW', 'Yesterday MW'], A.map(p => [hm(p.m), p.v, (B.find(q => Math.abs(q.m - p.m) <= 3) || {}).v ?? null]))}`;
+    ${csvBtn('gdToday', 'GSECL_generation_' + (isToday ? 'today' : iso), ['Time', dayName + ' MW', prevName + ' MW'], A.map(p => [hm(p.m), p.v, (B.find(q => Math.abs(q.m - p.m) <= 3) || {}).v ?? null]))}`;
 }
 
 /** GSECL against Gujarat today so far: energy (MU) and maximum MW of GSECL, Gujarat catered, solar and wind, with GSECL's share. */
@@ -637,6 +666,7 @@ const gujConv = r => (r[8] === null || r[6] === null ? null : r[8] - r[6] - (r[7
 const RANGES = [['1 h', 1], ['3 h', 3], ['6 h', 6], ['24 h', 24], ['7 d', 168], ['30 d', 720], ['90 d', 2160], ['Custom', 'custom']];
 /** The period shown: the last S.range hours, or the custom from / to. */
 function trendWindow() {
+  if (S.range === 'day') { const t0 = dpStart(dpGet('trend')); return {t0, t1: Math.min(t0 + 864e5, Date.now()), long: false}; }
   if (S.range === 'custom' && S.cFrom && S.cTo > S.cFrom) return {t0: S.cFrom, t1: S.cTo, long: S.cTo - S.cFrom > 26 * 3600e3};
   const h = +S.range || 24;
   return {t0: Date.now() - h * 3600e3, t1: Date.now(), long: h > 24};
@@ -673,12 +703,22 @@ const parseRows = csv => csv.split('\n').filter(Boolean).map(l => l.split(',')).
 
 function trendData() {
   const {t0: since, t1: until} = trendWindow();
-  const key = S.range === 'custom' ? `c${S.cFrom}-${S.cTo}` : S.range + '';
+  const key = S.range === 'custom' ? `c${S.cFrom}-${S.cTo}` : S.range === 'day' ? 'd' + dpGet('trend') : S.range + '';
   if (trendKey !== key || !trendRows) {
     trendRows = parseRows(hasNative('historyRead') ? Native.historyRead(String(since)) : '');
     trendKey = key;
   }
-  trendRows = trendRows.filter(r => r[0] <= until || S.range !== 'custom');
+  trendRows = trendRows.filter(r => r[0] <= until || (S.range !== 'custom' && S.range !== 'day'));
+  // a chosen day: the readings kept by the service fill what this device does not have (app closed, older days)
+  if (S.range === 'day') {
+    const srv = dpDayRows(dpGet('trend'), () => { trendKey = ''; renderTrends(); });
+    if (srv && srv.length && !trendRows._srv) {
+      const mine = new Set(trendRows.filter(r => r[0] >= since).map(r => Math.floor(r[0] / 18e4)));
+      const add = srv.filter(x => !mine.has(Math.floor(x[0] / 18e4)) && !mine.has(Math.floor(x[0] / 18e4) - 1) && !mine.has(Math.floor(x[0] / 18e4) + 1)).map(x => x.slice(0, 9));
+      trendRows = trendRows.concat(add).sort((a, b) => a[0] - b[0]);
+      trendRows._srv = true;
+    }
+  }
   if (!METRICS[S.metric]) return [];                                 // the comparison chart reads trendRows itself
   const val = S.metric === 'gen' ? GEN_BASIS[S.genBasis || 'all'][1] : S.metric === 'guj' ? gujConv : (r => r[METRICS[S.metric].col]);
   return trendRows.filter(r => r[0] >= since && r[0] <= until).map(r => ({t: r[0], v: val(r)})).filter(p => p.v !== null && isFinite(p.v));
@@ -700,6 +740,7 @@ function niceTicks(lo, hi, n) {
 
 function renderTrends() {
   document.querySelectorAll('#trendMetric button').forEach(b => b.classList.toggle('on', b.dataset.metric === S.metric));
+  if ($('trendDay') && typeof dpChips === 'function') $('trendDay').innerHTML = dpChips('trend', '', S.range === 'day');
   $('trendRange').innerHTML = RANGES.map(([l, h]) => `<button class="chip ${S.range === h ? 'on' : ''}" data-range="${h}">${l}</button>`).join('');
   $('trendCustom').hidden = S.range !== 'custom';
   if (S.range === 'custom') {
@@ -839,6 +880,24 @@ function timeLines(box, series, t0, t1, o = {}) {
   svg.addEventListener('pointermove', at);
 }
 
+/** Unit readings of other phones kept by the service (unit_history), or null while they are read. */
+const UH = {};
+function utServer(keys, t0, t1, then) {
+  if (typeof conCall !== 'function' || typeof hasConnect !== 'function' || !hasConnect() || !keys.length) return [];
+  const k = keys.join(',') + '|' + Math.floor(t0 / 6e5) + '|' + Math.floor(t1 / 6e5), c = UH[k];
+  const fresh = c && (t1 < Date.now() - 6e5 || Date.now() - c.at < 3 * 60e3);
+  if (c && (c.busy || fresh)) return c.rows || null;
+  UH[k] = {busy: true, at: Date.now(), rows: c ? c.rows : null};
+  conCall('unit_history', {from: t0, to: t1, keys: keys.join(',')}).then(r => { UH[k] = {at: Date.now(), rows: r.ok && r.data && Array.isArray(r.data.rows) ? r.data.rows : []}; then(); })
+    .catch(() => { UH[k] = {at: Date.now(), rows: []}; });
+  return c ? c.rows : null;
+}
+if (typeof dpOn === 'function') {
+  dpOn('ut', () => { (S.ut || (S.ut = {range: 24})).range = 'day'; S.open.forEach(i => renderUnitTrend(i)); });
+  dpOn('trend', () => { S.range = 'day'; trendKey = ''; renderTrends(); });
+  dpOn('gtoday', () => gdTodayRedraw());
+}
+
 function renderUnitTrend(i) {
   const box = $('utr-' + i), st = S.gsecl?.stations?.[i];
   if (!box || !st || !hasNative('unitHistoryRead')) { if (box) box.innerHTML = ''; return; }
@@ -847,16 +906,27 @@ function renderUnitTrend(i) {
   // Units chosen for this station (all by default; at most 8 lines, the colours available).
   const pick = (U.pick || (U.pick = {}))[st.station];
   const units = (pick ? allUnits.filter(u => pick.includes(u.key)) : allUnits).slice(0, 8);
-  const custom = U.range === 'custom' && U.from && U.to > U.from;
-  const t1 = custom ? U.to : Date.now(), t0 = custom ? U.from : t1 - (+U.range || 24) * 3600e3;
-  const lines = Native.unitHistoryRead(String(t0), String(t1), units.map(u => u.key).join(',')).split('\n').filter(Boolean).map(l => l.split(','));
+  const custom = U.range === 'custom' && U.from && U.to > U.from, day = U.range === 'day';
+  const d0 = day ? dpStart(dpGet('ut')) : 0;
+  const t1 = day ? Math.min(d0 + 864e5, Date.now()) : custom ? U.to : Date.now(), t0 = day ? d0 : custom ? U.from : t1 - (+U.range || 24) * 3600e3;
+  const own = Native.unitHistoryRead(String(t0), String(t1), units.map(u => u.key).join(',')).split('\n').filter(Boolean).map(l => l.split(','));
+  // readings of other phones (kept by the service) where this phone has none: app closed, phone off, the web version
+  const srv = utServer(units.map(u => u.key), t0, t1, () => renderUnitTrend(i));
+  let lines = own;
+  if (srv && srv.length) {
+    const mine = new Set(own.map(a => Math.floor(+a[0] / 24e4)));
+    lines = own.concat(srv.filter(r => !mine.has(Math.floor(r[0] / 24e4)) && !mine.has(Math.floor(r[0] / 24e4) - 1) && !mine.has(Math.floor(r[0] / 24e4) + 1))
+      .map(r => [String(r[0])].concat(r.slice(1).map(v => (v === null || v === undefined ? '' : String(v)))))).sort((a, b) => +a[0] - +b[0]);
+  }
+  const shared = lines.length - own.length;
   const series = units.map((u, k) => ({label: u.label, colour: `var(--k${k + 1})`, pts: lines.map(a => ({t: +a[0], v: a[k + 1] === '' || a[k + 1] === undefined ? null : +a[k + 1]})).filter(p => p.v !== null && isFinite(p.v))}));
   const loc = t => new Date(t - new Date(t).getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
   const colourOf = key => `var(--k${allUnits.findIndex(u => u.key === key) % 8 + 1})`;
   series.forEach((s, k) => { s.colour = colourOf(units[k].key); });
-  box.innerHTML = `<div class="blk"><div class="blk-h">Unit-wise generation<span>${lines.length} readings</span></div>
+  box.innerHTML = `<div class="blk"><div class="blk-h">Unit-wise generation<span>${lines.length} readings${shared > 0 ? ` · ${shared} from other phones` : ''}</span></div>
     ${allUnits.length > 1 ? `<div class="chips" style="padding:2px 0 4px;flex-wrap:wrap;overflow:visible">${allUnits.length > 2 ? `<button class="chip ${units.length === allUnits.length ? 'on' : ''}" data-utu="*" data-uti="${i}" style="padding:4px 10px;font-size:12px">All units</button>` : ''}${allUnits.map(u => `<button class="chip ${units.includes(u) ? 'on' : ''}" data-utu="${esc(u.key)}" data-uti="${i}" style="padding:4px 10px;font-size:12px"><span class="sw" style="background:${colourOf(u.key)}"></span>${esc(u.label)}</button>`).join('')}</div>` : ''}
-    <div class="chips" style="padding:4px 0 6px">${UT_RANGES.map(([l, h]) => `<button class="chip ${U.range === h ? 'on' : ''}" data-utr="${h}" data-uti="${i}" style="padding:4px 10px;font-size:12px">${l}</button>`).join('')}</div>
+    ${typeof dpChips === 'function' ? dpChips('ut', '', day) : ''}
+    <div class="chips" style="padding:0 0 6px">${UT_RANGES.map(([l, h]) => `<button class="chip ${U.range === h ? 'on' : ''}" data-utr="${h}" data-uti="${i}" style="padding:4px 10px;font-size:12px">${l}</button>`).join('')}</div>
     ${U.range === 'custom' ? `<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:end;margin-bottom:6px">
       <label style="font-size:11px;color:var(--muted)">From<input class="search" id="utF-${i}" type="datetime-local" value="${loc(U.from || Date.now() - 48 * 3600e3)}" style="margin:2px 0 0;padding:7px"></label>
       <label style="font-size:11px;color:var(--muted)">To<input class="search" id="utT-${i}" type="datetime-local" value="${loc(U.to || Date.now())}" style="margin:2px 0 0;padding:7px"></label>
@@ -865,7 +935,7 @@ function renderUnitTrend(i) {
     <div class="keyline">${series.map(s => { const last = s.pts[s.pts.length - 1]; return `<span><i style="width:14px;height:3px;background:${s.colour}"></i>${esc(s.label)}${last ? ` <b style="color:var(--ink)">${fmt(last.v, 0)}</b>` : ''}</span>`; }).join('')}</div>
     ${lines.length ? csvBtn('ut' + i, `${st.station} unit-wise generation`, ['Time'].concat(units.map(u => `${u.label} (${u.key}) MW`)), lines.map(a => [csvTime(+a[0])].concat(units.map((u, k) => a[k + 1] === undefined || a[k + 1] === '' ? '' : +a[k + 1])))) : ''}</div>`;
   const c = $('utc-' + i);
-  if (!series.some(s => s.pts.length >= 2)) { c.innerHTML = '<div class="empty">No unit readings stored for this period yet. They are recorded from this version on, while the app is open and by the background monitor.</div>'; return; }
+  if (!series.some(s => s.pts.length >= 2)) { c.innerHTML = `<div class="empty">${srv === null ? 'Reading the unit readings kept by GSECL Connect…' : 'No unit readings for this period, on this phone or from other phones.'}</div>`; return; }
   timeLines(c, series, t0, t1, {label: st.station + ' unit-wise generation'});
 }
 document.addEventListener('click', e => {
@@ -1118,7 +1188,7 @@ function exportTrends() {
   trendData();
   const rows = (trendRows || []).filter(r => r[0] >= since && r[0] <= until);
   if (!rows.length) return alert('No readings in this period to export.');
-  csvSave(`GSECL_trends_${S.range === 'custom' ? 'custom' : RANGES.find(x => x[1] === S.range)[0].replace(' ', '')}`, COLS,
+  csvSave(`GSECL_trends_${S.range === 'custom' ? 'custom' : S.range === 'day' ? dpGet('trend') : RANGES.find(x => x[1] === S.range)[0].replace(' ', '')}`, COLS,
     rows.map(r => [csvTime(r[0])].concat(r.slice(1, 9), [gujConv(r)])));
 }
 
@@ -1127,9 +1197,36 @@ function renderTrendBg() {
   const el = $('trendBg');
   if (!el) return;
   if (!hasNative('monitorMinutes')) { el.textContent = ''; return; }
+  if (bgState() === 'no' || bgState() === '') { el.textContent = 'Not recorded while the app is closed (background data not allowed, Profile)'; return; }
   const m = Native.monitorMinutes(), last = Native.monitorLastAt();
   el.textContent = (m > 0 ? `Recorded in the background every ${m} min` : 'Recorded in the background about every 15 min') + (last ? ` · last ${tFmt(last, Date.now() - last > 864e5)}` : '');
 }
+
+/** Background data (the app's own checks while closed): asked once at the start, and changed in Profile. */
+const bgState = () => (hasNative('bgConsent') ? Native.bgConsent() : 'n/a');
+function renderBg() {
+  const st = bgState();
+  if (!$('bgCard')) return;
+  $('bgCard').hidden = st === 'n/a';
+  $('bgSw').classList.toggle('on', st === 'yes');
+  $('bgNote').textContent = st === 'yes' ? 'Allowed: notices, chat, outage and unit-sync alerts and the trends are checked while the app is closed (as set below).'
+    : 'Not allowed: nothing is read while the app is closed (no notifications of notices, chat, outages or syncs). The data is read when you open the app.';
+  if ($('monCard')) $('monCard').classList.toggle('dim', st !== 'yes');
+}
+function bgSet(on) { if (hasNative('bgConsentSet')) Native.bgConsentSet(!!on); setTimeout(() => { renderBg(); renderMonitor(); renderTrendBg(); }, 300); }
+function bgAsk() {
+  if (bgState() !== '' || window.SOLAR_ONLY || $('bgAsk')) return;
+  const el = document.createElement('div'); el.id = 'bgAsk'; el.className = 'dpcal';
+  el.innerHTML = `<div class="box" role="dialog" aria-label="Background data"><div style="font-weight:800;font-size:16px;margin-bottom:6px">Background data</div>
+    <div style="font-size:13.5px;line-height:1.5;color:var(--muted)">May GSECL Connect read data while the app is closed? It is needed for notifications of notices and chat, forced outages and unit syncs, and to record the trends. Without it, nothing is read in the background: the data is read when you open the app.<br><br>You can change this at any time in Profile › Background data.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn" data-bgask="0" style="margin:0">Not now</button><button class="btn" data-bgask="1" style="margin:0;background:var(--accent);color:#fff;border-color:var(--accent)">Allow</button></div></div>`;
+  document.body.appendChild(el);
+}
+document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('[data-bgask]');
+  if (a) { bgSet(a.dataset.bgask === '1'); const el = $('bgAsk'); if (el) el.remove(); return; }
+  if (e.target.closest && e.target.closest('#bgSw')) bgSet(bgState() !== 'yes');
+});
 
 function renderMonitor() {
   if (!$('monSeg')) return;
@@ -1143,7 +1240,10 @@ function renderMonitor() {
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-mon],[data-gbasis],[data-mixs]');
   if (!b) return;
-  if (b.dataset.mon !== undefined) { if (hasNative('monitorSet')) Native.monitorSet(+b.dataset.mon); return setTimeout(() => { renderMonitor(); renderTrendBg(); }, 300); }
+  if (b.dataset.mon !== undefined) {
+    if (bgState() !== 'yes' && bgState() !== 'n/a') { if (!confirm('Background monitoring needs background data. Allow GSECL Connect to read data while the app is closed?')) return; bgSet(true); }
+    if (hasNative('monitorSet')) Native.monitorSet(+b.dataset.mon); return setTimeout(() => { renderMonitor(); renderTrendBg(); }, 300);
+  }
   if (b.dataset.gbasis) { S.genBasis = b.dataset.gbasis; return renderTrends(); }
   if (b.dataset.mixs) { const k = b.dataset.mixs, on = mixOn(); S.mixOn = on.includes(k) ? (on.length > 1 ? on.filter(x => x !== k) : on) : on.concat(k); return renderTrends(); }
 });
@@ -1284,7 +1384,8 @@ const PALETTES = {
   forest: {name: 'Forest', hero: ['#052e1f', '#065f46', '#047857'], light: ['#047857', '#ca8a04'], dark: ['#10a374', '#c2850a']},
   sunset: {name: 'Sunset', hero: ['#431407', '#7c2d12', '#c2410c'], light: ['#c2410c', '#7c3aed'], dark: ['#ea580c', '#8b5cf6']},
 };
-const SET_DEFAULT = {refresh: 60, theme: 'system', palette: 'gsecl', seen: 0};
+// autoRefresh: off by default (data is read when the app is opened, and on Refresh); switched on in Profile.
+const SET_DEFAULT = {refresh: 60, theme: 'system', palette: 'gsecl', seen: 0, autoRefresh: false};
 
 function loadSettings() {
   try { return {...SET_DEFAULT, ...JSON.parse((hasNative('storeGet') && Native.storeGet('settings')) || '{}')}; }
@@ -1310,6 +1411,9 @@ function applyTheme() {
 window.onSystemTheme = () => { if (S.set.theme === 'system') { applyTheme(); render(); } };
 
 function renderSettings() {
+  $('autoSw').classList.toggle('on', appAuto());
+  $('refBox').hidden = !appAuto();
+  renderBg();
   $('refRange').value = S.set.refresh;
   $('refVal').textContent = S.set.refresh + ' s';
   document.querySelectorAll('#themeSeg button').forEach(b => b.classList.toggle('on', b.dataset.themeset === S.set.theme));
@@ -1462,13 +1566,16 @@ function renderMix(g) {
       <div class="bar"><div class="f" style="width:${x.totals.gen / max * 100}%;background:${FUEL_COLOR[x.fuel]}"></div></div></div>`).join('') + '</div>';
 }
 
-function render() { renderHeader(); renderAlerts(); renderHome(); renderGujarat(); renderTrends(); renderPrices(); renderMerit(); renderStations(); renderOutages(); renderInfo(); if ($('v-alerts').classList.contains('on')) renderAlertLog(); }
+function render() { renderHeader(); renderAlerts(); renderHome(); renderGujarat(); renderTrends(); renderPrices(); renderMerit(); renderStations(); renderOutages(); renderInfo(); if ($('v-alerts').classList.contains('on')) renderAlertLog(); if (typeof smRender === 'function') smRender(); }
 
 // ---------------------------------------------------------------- interaction
 
 const SECTION = {home: 'gen', stations: 'gen', outages: 'gen', grid: 'gen', merit: 'gen', hydro: 'gen', solar: 'gen', alerts: 'gen', dsm: 'dsm', coal: 'coal', safety: 'safety', connect: 'connect', chat: 'chat', info: 'me'};
 function show(v) {
+  // Inside the Android app's native shell: the dashboard is native, and the native bar follows the page's section.
+  if (window.NATIVE_SHELL && hasNative('shellSection') && v === 'home') { Native.shellSection('native'); return; }
   const sec = SECTION[v] || 'gen';
+  if (window.NATIVE_SHELL && hasNative('shellSection')) Native.shellSection(sec === 'gen' ? 'genweb' : sec);
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + v));
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.sec === sec));
   $('meBtn').classList.toggle('active', sec === 'me');            // Profile opens from the top-right button
@@ -1479,6 +1586,7 @@ function show(v) {
   if (sec === 'gen' && v !== 'alerts') document.querySelector('#nav button[data-sec="gen"]').dataset.v = v;   // come back to the same sub-tab
   window.scrollTo({top: 0});
   if (v === 'grid') { renderTrends(); renderCompare(); renderPrices(); reFcLoad(); if (typeof lfShow === 'function') lfShow(); if (typeof gtRender === 'function') gtRender(); }
+  if ((v === 'grid' || v === 'home') && typeof smRender === 'function') smRender();
   if (v === 'dsm') { dsmShow(); if (typeof dlShow === 'function') dlShow(); }
   if (v === 'hydro' && typeof hyShow === 'function') hyShow();
   if (v === 'solar' && typeof soShow === 'function') soShow();
@@ -1579,6 +1687,20 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What changed in this version (shown in Profile › About); the newest first. */
 const RELEASE_NOTES = [
+  ['3.16.1', '28 Oct 2026', [
+    'DSM › Estimate: the schedule now includes the bilateral and power exchange sales of a unit (SLDC sends them apart from the GUVNL schedule); stations selling on the exchange (e.g. WTPS 8, Sikka) no longer show false over-injection, so days were wrongly receivable',
+    'DSM › SLDC weekly reports: fetching no longer stops with “UNIQUE constraint failed: notices.url” when SLDC lists one report under two weeks']],
+  ['3.16.0', '28 Oct 2026', [
+    'Auto-refresh is off by default: the data is read when the app is opened (also when it comes back to the front) and when you tap Refresh; switch it on in Profile › Settings',
+    'Background data: nothing is read while the app is closed unless you allow it (asked once at the start; Profile › Background data). Needed for notifications and the background trends',
+    'Every trend: Today, Yesterday or 📅 any day from a calendar where the days with readings are marked; older days come from the month history files of GSECL Connect',
+    'Generation › GSECL generation by source and Gujarat › Gujarat supply by source: MW by source over the day as stacked areas, drag for every source at that time',
+    'Gujarat › Frequency and over / under drawal: touching or dragging shows the block’s drawal, schedule and frequency together',
+    'Gujarat › GSECL MU 00–17 h and 17–24 h: hour by hour for the day chosen, with the day before; the 30-day trend stays',
+    'Unit-wise trends: gaps filled with the readings of other phones (app closed, phone off)',
+    'Login activity: Live now counts only people with the app open; Used today list; the sign-in log folds away; security alerts highlighted with Acknowledge',
+    'New registrations wait for a super administrator’s approval (after the e-mailed code and the own password)',
+    'Super administrators: security alerts e-mailed and notified every 10 minutes until acknowledged']],
   ['3.15.6', '27 Oct 2026', [
     'Gujarat › Frequency and over / under drawal: SLDC “Gujarat At periphery” drawal against schedule by 15-minute block, over-drawal as bars up and under-drawal as bars down, with the frequency line; today or yesterday, over / under MU, largest blocks, over-drawal below 49.90 Hz',
     'Gujarat › GSECL MU 00–17 h and 17–24 h: two lines over 30 days with the average MW of each part and the evening ramp-up',
@@ -1738,6 +1860,7 @@ function renderUpdate() {
 }
 window.onUpdateInfo = renderUpdate;
 window.onUpdateMsg = (msg, err) => { updMsg = msg; updErr = !!err; renderUpdate(); };
+window.__shellGo = v => window.show(v);   // the native shell opens a section of the page
 window.showUpdate = () => { show('info'); setTimeout(() => $('updCard').scrollIntoView({behavior: 'smooth', block: 'start'}), 80); };
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-upd]');
@@ -1763,6 +1886,8 @@ $('lockSw').addEventListener('click', () => { if (Native.appLock() === 'none') r
 renderLock();
 $('accOut').addEventListener('click', () => { if (hasNative('logout') && confirm('Sign out on this phone?')) Native.logout(); });
 $('refRange').addEventListener('change', () => { saveSettings(); tick = 0; });
+$('stampNext').addEventListener('click', () => { if (!appAuto()) { appOpenAt = Date.now(); refreshAll(); } });
+$('autoSw').addEventListener('click', () => { S.set.autoRefresh = !appAuto(); saveSettings(); tick = 0; renderSettings(); });
 $('alertClear').addEventListener('click', () => {
   if (hasNative('alertsHistoryClear') && confirm('Clear the notification history?')) { Native.alertsHistoryClear(); renderAlertLog(); }
 });
@@ -1771,6 +1896,7 @@ setInterval(() => {
   if (window.SOLAR_ONLY) return;   // outside solar-entry sign-in: no generation data
   tick++;
   const every = S.set.refresh;
+  if (!appAuto()) { $('stampNext').textContent = S.loading ? 'Updating…' : 'Auto-refresh off · tap to refresh'; return; }
   if (tick % every === 0) { load('gsecl'); load('home'); }
   if (tick % OUTAGE_EVERY === 0) load('outages');
   if (tick % IEX_EVERY === 0) load('iex');
@@ -1784,4 +1910,4 @@ sendUnitLabels();
 // An outside solar-entry sign-in (role "solar") sees only the solar entry page (hysol.js): no generation data is read.
 const APP_SOLAR_ONLY = (() => { try { return typeof Native !== 'undefined' && Native.account && JSON.parse(Native.account() || '{}').role === 'solar'; } catch (e) { return false; } })();
 if (APP_SOLAR_ONLY) window.SOLAR_ONLY = true;
-else { render(); refreshAll(); }
+else { render(); refreshAll(); setTimeout(bgAsk, 1500); }

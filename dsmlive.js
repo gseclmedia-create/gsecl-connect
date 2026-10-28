@@ -97,6 +97,7 @@ function dlShow() {
   DL.timer = setInterval(() => {
     if (!$('v-dsm') || !$('v-dsm').classList.contains('on')) { clearInterval(DL.timer); DL.timer = null; return; }
     const c = $('dlClock'); if (c) c.textContent = dlLeft();
+    if (typeof appAuto === 'function' && !appAuto()) return;              // auto-refresh off: read when opened only
     if (DL.data && Date.now() >= DL.data.block_end + 20e3) dlLoad(true);   // a new block: read again (readings come in during the first minute)
     else if (Date.now() - DL.at > 60e3 && document.visibilityState === 'visible') dlLoad();
   }, 1000);

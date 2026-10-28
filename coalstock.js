@@ -119,7 +119,7 @@ function spStamp() { const el = $('spStamp'); if (el) el.outerHTML = spSyncLine(
 // deleted in the sheet (or entered from another phone) show up without reopening the app.
 setInterval(() => {
   const n = spInterval();
-  if (!n || document.hidden || typeof K === 'undefined' || !$('v-coal').classList.contains('on') || K.detail || !['stock', 'entry'].includes(K.tab) || SP.saving) return;
+  if (!n || document.hidden || (typeof appAuto === 'function' && !appAuto()) || typeof K === 'undefined' || !$('v-coal').classList.contains('on') || K.detail || !['stock', 'entry'].includes(K.tab) || SP.saving) return;
   if (!SP.last || Date.now() - SP.last >= n * 1000) spLoad(true, true);
 }, 5000);
 
