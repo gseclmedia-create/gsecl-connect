@@ -1688,6 +1688,10 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What changed in this version (shown in Profile › About); the newest first. */
 const RELEASE_NOTES = [
+  ['3.16.6', '29 Oct 2026', [
+    'Sign-in: an employee who has not registered yet goes straight to “Register / first sign-in” with the code already e-mailed, whatever is typed as password — no more locked accounts from trying another system’s password',
+    'A wrong password now says how many tries are left and that “Forgot password?” opens a locked account at once',
+  ]],
   ['3.16.5', '28 Oct 2026', [
     'Connect › People: every employee of the list is shown (more load as you scroll, no longer the first 80 only); those whose app access is off are marked “App access blocked”',
     'WTPS Unit 8 › Performance & losses: unit and turbine heat rate against design at the load, boiler efficiency by the loss method, condenser (CW flow and TTD), HP heaters, the controllable losses ranked in kcal/kWh, coal t/day and ₹ lakh/day with what to check, and health checks (bearings, steam chemistry, emissions); design values and coal analysis set by administrators',

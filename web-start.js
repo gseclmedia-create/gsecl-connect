@@ -137,10 +137,17 @@
 
   async function signIn() {
     const emp = $('wlEmp').value.trim(), pass = $('wlPass').value;
-    if (!emp || !pass) return say('Enter your employee number and password.', true);
+    if (!emp) return say('Enter your employee number and password.', true);
     working(true, 'Signing in…');
     const r = await api('login', { emp_no: emp, password: pass });
     working(false);
+    // Not registered yet: the service has e-mailed the registration code; open the first sign-in with the code box.
+    if (r.ok && r.data && r.data.first_time) {
+      show('first'); $('wlEmp').value = emp; $('wlPass').value = '';
+      L.totp = !!r.data.totp; L.codeSent = true; L.method = 'email'; refresh();
+      say(r.data.message || 'You are signing in for the first time: enter the code e-mailed to you.', false);
+      return $('wlOtp').focus();
+    }
     if (!r.ok || !r.data.token || !r.data.user) { $('wlDev').hidden = r.code !== 409; return say(r.error || 'Sign-in failed.', true); }
     S().signIn(r.data.token, r.data.user, false);
     L.masked = r.data.otp_email && r.data.otp_email !== 'null' ? r.data.otp_email : '';
