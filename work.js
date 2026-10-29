@@ -18,13 +18,14 @@ const W_PAGES = [
   ['pubnote', 'Send a notice', 'To everyone, a station, a department or one employee', 'notifications', 'edit'],
   ['admin', 'Employees', 'Add or update employees, access, password reset and registered phone', 'employees', 'edit'],
   ['activity', 'Login activity', 'Who is live now, sign-ins, refused phones, day-wise peak', 'employees', 'edit'],
-  ['devreq', 'Phone approvals', 'Requests to use another phone (super administrator)', 'superadmin', 'edit'],
+  ['u8', 'WTPS Unit 8 · live', 'Live plant parameters, KPI trends, boiler, turbine, generator, SWAS (access on approval)', 'everyone', 'view'],
+  ['devreq', 'Approvals', 'New registrations, another phone, page access (super administrator)', 'superadmin', 'edit'],
   ['mgmtrep', 'Daily management report', 'Generation, outages, DSM, coal and safety of a day as a PDF', 'adminonly', 'edit'],
 ];
 const W_UNIT_STATUS = ['In service', 'Under shutdown', 'Decommissioned'];
 
 const wMe = () => { try { return JSON.parse(Native.account() || '{}'); } catch (e) { return {}; } };
-const wCan = (module, how) => { if (module === 'superadmin') return wMe().role === 'superadmin'; if (module === 'adminonly') return ['admin', 'superadmin'].includes(wMe().role); const p = wMe().permissions || {}; return ((how === 'edit' ? p.edit : p.view) || []).includes(module); };
+const wCan = (module, how) => { if (module === 'everyone') return true; if (module === 'superadmin') return wMe().role === 'superadmin'; if (module === 'adminonly') return ['admin', 'superadmin'].includes(wMe().role); const p = wMe().permissions || {}; return ((how === 'edit' ? p.edit : p.view) || []).includes(module); };
 const wRoleBadge = r => r === 'superadmin' ? '<span class="badge b-Forced">Super admin</span>' : r === 'admin' ? '<span class="badge b-RSD">Admin</span>' : r === 'solar' ? '<span class="badge b-Planned">Solar entry</span>' : '';
 const wBtn = (label, act, arg = '', primary = false) => `<button class="btn" data-wact="${act}" data-warg="${esc(arg)}" style="${primary ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : 'color:var(--accent)'}">${esc(label)}</button>`;
 const wBack = (label = 'More') => `<div class="chips"><button class="chip" data-wact="back">‹ ${esc(label)}</button></div>`;
@@ -126,6 +127,7 @@ const W_LOADS = {stations: ['stations', 'stations', 60], boilers: ['boilers', 'b
 async function wOpen(page, force = false) {
   W.page = page; W.form = null; W.error = ''; W.note = ''; W.open.clear();
   conRender(); window.scrollTo({top: 0});
+  if (page === 'u8') { W.page = ''; return show('u8'); }          // its own view (wtps8.js), back to Connect from there
   if (page === 'admin') return wAdminLoad();
   if (page === 'pafafc' && typeof pafLoad === 'function') { PF.group = ''; return pafLoad(force); }
   if (W_LOADS[page]) return wLoad(W_LOADS[page][0], W_LOADS[page][1], {}, W_LOADS[page][2], force);
@@ -293,7 +295,11 @@ function wAdmin() {
 function wDevReq() {
   const d = W.data.devreq;
   if (!d) return W.busy ? conSpin() : '';
-  const req = r => r.kind === 'registration' ? `<div class="oq" style="--oc:var(--accent)"><div class="oq-h"><span class="nm">${esc(conName(r.name) || r.emp_no)}</span><span class="badge b-Running">New registration</span></div>
+  const acc = r => `<div class="oq" style="--oc:#7c3aed"><div class="oq-h"><span class="nm">${esc(conName(r.name) || r.emp_no)}</span><span class="badge b-RSD">Page access</span></div>
+      <div class="meta num"><div><span>Employee</span>${esc(r.emp_no)} · ${esc(r.station)}</div><div><span>Asked</span>${conDate(r.requested_at, true)}</div>
+        <div style="grid-column:1/-1"><span>For</span>${esc(r.device_name)}</div></div>
+      <div style="display:flex;gap:8px;margin-top:8px">${wBtn('Approve', 'devok', r.id, true)} ${wBtn('Reject', 'devno', r.id)}</div></div>`;
+  const req = r => /^access:/.test(r.kind) ? acc(r) : r.kind === 'registration' ? `<div class="oq" style="--oc:var(--accent)"><div class="oq-h"><span class="nm">${esc(conName(r.name) || r.emp_no)}</span><span class="badge b-Running">New registration</span></div>
       <div class="meta num"><div><span>Employee</span>${esc(r.emp_no)} · ${esc(r.station)}</div><div><span>Registered</span>${conDate(r.requested_at, true)}</div>
         <div><span>On</span>📱 ${esc(r.device_name || '—')}</div><div><span>Access</span>waits for approval</div></div>
       <div class="vals" style="font-size:12.5px;margin-top:6px">Signed in with the e-mailed code and set a password. Check that this is a GSECL employee before approving.</div>
@@ -302,10 +308,10 @@ function wDevReq() {
       <div class="meta num"><div><span>Employee</span>${esc(r.emp_no)} · ${esc(r.station)}</div><div><span>Asked</span>${conDate(r.requested_at, true)}</div>
         <div><span>New phone</span>📱 ${esc(r.device_name)}</div><div><span>Phones now</span>${esc(r.phones.map(x => x.name + (x.main ? ' (registered)' : '')).join(', ') || '—')}</div></div>
       <div style="display:flex;gap:8px;margin-top:8px">${wBtn('Approve', 'devok', r.id, true)} ${wBtn('Reject', 'devno', r.id)}</div></div>`;
-  const done = r => `<div class="nrow" style="cursor:default"><span class="sd" style="background:${r.status === 'approved' ? 'var(--run)' : 'var(--forced)'}"></span><div class="nb"><b>${esc(conName(r.name) || r.emp_no)} · ${r.kind === 'registration' ? 'registration' : esc(r.device_name)} · ${esc(r.status)}</b>
+  const done = r => `<div class="nrow" style="cursor:default"><span class="sd" style="background:${r.status === 'approved' ? 'var(--run)' : 'var(--forced)'}"></span><div class="nb"><b>${esc(conName(r.name) || r.emp_no)} · ${r.kind === 'registration' ? 'registration' : /^access:/.test(r.kind) ? 'access · ' + esc(r.device_name) : esc(r.device_name)} · ${esc(r.status)}</b>
       <div class="nt">${esc([r.emp_no, r.station, 'asked ' + (r.requested_at || '').slice(0, 16), r.decided_at && 'decided ' + r.decided_at.slice(0, 16) + ' by ' + r.decided_by, r.note].filter(Boolean).join(' · '))}</div></div></div>`;
   return wMsg() + `<div class="card"><h2>Waiting for approval (${d.pending.length})</h2>${d.pending.length ? '' : conEmpty('No request is waiting.')}
-      <div class="note-src">New registration: a new employee signed in with the e-mailed code and set a password; they can use the app once approved (they are e-mailed). Another phone: an employee asks from the new phone after signing in there with the password; after approval they sign in on it with the password and the e-mailed code, and the registered phone keeps working.</div></div>`
+      <div class="note-src">New registration: a new employee signed in with the e-mailed code and set a password; they can use the app once approved (they are e-mailed). Page access: an employee asks for a page given on approval (WTPS Unit 8); approving adds it to their “May see”. Another phone: an employee asks from the new phone after signing in there with the password; after approval they sign in on it with the password and the e-mailed code, and the registered phone keeps working.</div></div>`
     + d.pending.map(req).join('')
     + (d.decided.length ? `<div class="card"><h2>Decided</h2>${d.decided.map(done).join('')}</div>` : '');
 }
@@ -444,7 +450,7 @@ function wStartForm(kind, arg = '') {
       {k: 'show_mobile', label: 'Mobile visible in the directory', type: 'check', value: e.show_mobile}].concat(arg ? [] : [{k: 'active', label: 'Active (can sign in)', type: 'check', value: e.active}]);
     if (admin) fields.push({k: 'role', label: 'Role', type: 'select', options: [['', 'Employee'], ['admin', 'Administrator'], ['solar', 'Solar entry only (outside agency)']].concat(sup || d.can_grant_super || e.role === 'superadmin' ? [['superadmin', 'Super administrator (approves extra phones)']] : []), value: e.role === 'employee' ? '' : e.role || '',
         hint: !d.superadmin_exists ? 'No super administrator is set yet: choose “Super administrator” here for the first one (after that only a super administrator can give this role). They approve requests for extra phones in More › Phone approvals.' : '“Solar entry only”: a person outside GSECL (solar O&M agency) who sees nothing but the daily entry of the solar sites that list their number (Generation › Solar › Edit site). They sign in with the same password and e-mailed code as employees.'},
-      {k: 'can_view', label: 'May see', type: 'checks', options: d.modules, value: e.can_view, hint: 'Pages of the app: generation, dsm, rakes (railway rake tracking), coal (coal stock position), and the Safety tabs safety_obs (observations), safety_inc (incidents) and safety_ptw (permit to work). The first five and generation are open to everyone. See: own station; report or request.'},
+      {k: 'can_view', label: 'May see', type: 'checks', options: d.modules, value: e.can_view, hint: 'Pages of the app: generation, dsm, rakes (railway rake tracking), coal (coal stock position), and the Safety tabs safety_obs (observations), safety_inc (incidents) and safety_ptw (permit to work). wtps_u8 = the WTPS Unit 8 live page (Connect › More; also given by approving a request). The first five and generation are open to everyone. See: own station; report or request.'},
       {k: 'can_edit', label: 'May change', type: 'checks', options: d.modules, value: e.can_edit, hint: 'coal = may enter the daily coal stock and rake unloading figures (an employee posted at WTPS, GTPS, STPS or UTPS only that station). safety_obs / safety_inc = safety officer: assign, investigate, close, all stations. ptw_de = Operation DE and ptw_sce = Shift Charge Engineer for permit approvals at their station.'});
     const phones = e.devices || [];
     const phone = arg ? `<div class="vals" style="margin:0 0 10px">${phones.length ? `Phones: ${phones.map(x => `<b>${esc(x.name)}</b>${x.at ? ' (' + conDate(x.at) + ')' : ''}${x.main ? ' · registered' : ` · approved extra${sup ? ` <a data-wact="revdev" data-warg="${esc(arg + '|' + x.id)}" style="color:var(--neg)">Remove</a>` : ''}`}`).join('; ')}. “Release phone” clears them all; the next phone that confirms a code is registered.` : 'No phone registered yet: the first phone that confirms an e-mailed code is registered.'}${e.role === 'admin' || e.role === 'superadmin' ? ' Administrators may use several phones.' : ''}</div>` : '';

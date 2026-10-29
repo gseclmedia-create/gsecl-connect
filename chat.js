@@ -9,6 +9,7 @@ const H = {
   reads: {}, readSent: {},                                        // reads: {conv: {emp: read up to id}} from the service
   mode: 'list', open: 0, q: '', sel: new Set(), title: '', act: 0, safety: null, info: '',
   timer: 0, syncing: false, loaded: false,
+  outbox: [], flushing: false, fastUntil: 0,                      // messages shown at once and sent in the background, in order
 };
 const hasChat = () => typeof window.Chat !== 'undefined' && hasConnect();
 const chMe = () => { try { return String(JSON.parse(Native.account() || '{}').emp_no || ''); } catch (e) { return ''; } };
@@ -33,7 +34,7 @@ function chLoadStore() {
 let chSaveT = 0;
 function chSave(convIds) {
   Connect.cacheSet('chat_meta', JSON.stringify({last: H.last, convs: H.convs, read: H.read, reads: H.reads}));
-  (convIds || []).forEach(id => Connect.cacheSet('chat_c_' + id, JSON.stringify((H.msgs[id] || []).slice(-1000))));
+  (convIds || []).forEach(id => Connect.cacheSet('chat_c_' + id, JSON.stringify((H.msgs[id] || []).filter(m => m.id > 0).slice(-1000))));
 }
 
 // ---------------------------------------------------------------- service
@@ -64,7 +65,10 @@ async function chSync() {
       const touched = new Set();
       (d.msgs || []).forEach(m => {
         const l = H.msgs[m.conv] || (H.msgs[m.conv] = []), i = l.findIndex(x => x.id === m.id);
-        if (i >= 0) l[i] = Object.assign(l[i], m); else l.push(m);
+        if (i >= 0) { l[i] = Object.assign(l[i], m); touched.add(m.conv); return; }
+        const tmp = m.from === chMe() ? l.findIndex(x => x.id < 0 && x.pending && x.t === m.t) : -1;   // my message, still being confirmed
+        if (tmp >= 0) l[tmp] = m; else l.push(m);
+        if (m.conv === H.open && m.from !== chMe()) H.fastUntil = Date.now() + 30e3;   // a conversation going on: look more often
         touched.add(m.conv);
       });
       H.last = Math.max(H.last, d.last || 0); H.v = d.v || '';
@@ -78,11 +82,14 @@ async function chSync() {
   chMarkRead();
 }
 
-/** How often to look: open chat every 5 s, chat list 10 s, elsewhere a minute (only once chat is used). */
+/**
+ * How often to look: an open chat every 3 s (1.5 s for half a minute after a message either way), the chat list
+ * every 6 s, elsewhere a minute (only once chat is used).
+ */
 function chTick() {
   clearTimeout(H.timer);
   const on = $('v-chat')?.classList.contains('on');
-  const every = on && H.mode === 'conv' ? 5e3 : on ? 10e3 : H.convs.length ? 60e3 : 0;
+  const every = on && H.mode === 'conv' ? (Date.now() < H.fastUntil ? 1500 : 3e3) : on ? 6e3 : H.convs.length ? 60e3 : 0;
   if (!every || document.hidden) return;
   H.timer = setTimeout(async () => { await chSync(); chTick(); }, every);
 }
@@ -105,6 +112,8 @@ function chMarkRead() {
 
 /** Ticks of an own message: ✓ on the server, grey ✓✓ read by some of a group, coloured ✓✓ read by everyone. */
 function chTicks(c, m) {
+  if (m.failed) return '<b class="chtk bad" title="Not sent">⚠</b>';
+  if (m.pending || m.id < 0) return '<b class="chtk wait" title="Sending">🕓</b>';
   const others = c.members.filter(x => x !== chMe()), rd = H.reads[c.id] || {}, n = others.filter(x => (rd[x] || 0) >= m.id).length;
   if (!others.length) return '';
   if (n === others.length) return '<b class="chtk rd" title="Read">✓✓</b>';
@@ -117,19 +126,51 @@ function chReadInfo(c, m) {
   return `<div class="chri"><b>Read by ${yes.length} of ${others.length}</b>${yes.length ? '<br>✓✓ ' + yes.map(e => esc(chName(e))).join(', ') : ''}${no.length ? '<br>Not yet: ' + no.map(e => esc(chName(e))).join(', ') : ''}</div>`;
 }
 
-async function chSend() {
+/** Send: the message is shown at once (🕓) and the box is free for the next; encrypting and sending go on behind. */
+let chSeq = 0;
+function chSend() {
   const box = $('chText'), text = (box?.value || '').trim(), c = chConv(H.open);
-  if (!text || !c || H.sending) return;
-  H.sending = true; chRenderComposer();
-  const r = await chAsk(id => Chat.send(id, c.id, JSON.stringify(c.members), text, H.act || 0));
-  H.sending = false;
-  if (r.ok) {
-    box.value = ''; H.act = 0;
-    const l = H.msgs[c.id] || (H.msgs[c.id] = []);
-    if (!l.some(m => m.id === r.data.id)) l.push({id: r.data.id, conv: c.id, from: chMe(), at: r.data.at, t: text, ok: true, verified: true});
-    chNotes(c, r.data); chSave([c.id]); chRender(); chScroll();
-    setTimeout(chSync, 300);
-  } else { H.err = r.error; chRender(); }
+  if (!text || !c) return;
+  const m = {id: -(++chSeq), conv: c.id, from: chMe(), at: Date.now(), t: text, ok: true, verified: true, pending: true, r: H.replying && H.act > 0 ? H.act : 0};
+  (H.msgs[c.id] = H.msgs[c.id] || []).push(m);
+  box.value = ''; box.style.height = 'auto';
+  const hadReply = H.replying; H.act = 0; H.replying = false;
+  if (hadReply) chRenderComposer();
+  H.outbox.push(m);
+  chPaint(true);
+  const t = $('chText'); if (t) t.focus();
+  chFlush();
+}
+async function chFlush() {
+  if (H.flushing) return;
+  H.flushing = true;
+  try {
+    while (H.outbox.length) {
+      const m = H.outbox[0], c = chConv(m.conv);
+      const r = c ? await chAsk(id => Chat.send(id, c.id, JSON.stringify(c.members), m.t, m.r || 0)) : {ok: false, error: 'Chat not found'};
+      H.outbox.shift();
+      const l = H.msgs[m.conv] || [], i = l.indexOf(m);
+      if (!r.ok) { m.pending = false; m.failed = r.error || 'Not sent'; chPaint(); continue; }
+      if (i >= 0) {
+        const real = {id: r.data.id, conv: m.conv, from: m.from, at: r.data.at || m.at, t: m.t, ok: true, verified: true};
+        if (m.r) real.r = m.r;
+        if (l.some(x => x.id === r.data.id)) l.splice(i, 1); else l[i] = real;
+      }
+      if (c) chNotes(c, r.data);
+      chSave([m.conv]); H.fastUntil = Date.now() + 30e3;
+      chPaint();
+    }
+  } finally { H.flushing = false; }
+  chSync(); chTick();
+}
+/** A message that could not be sent: tapped, it goes again. */
+function chRetry(id) {
+  const m = (H.msgs[H.open] || []).find(x => x.id === id);
+  if (!m || !m.failed) return false;
+  m.failed = ''; m.pending = true; m.at = Date.now();
+  const l = H.msgs[H.open]; l.splice(l.indexOf(m), 1); l.push(m);
+  H.outbox.push(m); chPaint(true); chFlush();
+  return true;
 }
 
 async function chSendFile() {
@@ -225,6 +266,19 @@ function chGo(mode, id) {
   chTick();
 }
 const chScroll = () => setTimeout(() => { const el = $('chMsgs'); if (el) window.scrollTo({top: document.body.scrollHeight}); }, 30);
+const chNearEnd = () => window.innerHeight + window.scrollY >= document.body.scrollHeight - 180;
+/**
+ * The open conversation, messages only: the header and the composer (with what is being typed and the keyboard)
+ * stay as they are. Follows the newest message when the list was at its end (or toEnd).
+ */
+function chPaint(toEnd) {
+  const c = chConv(H.open), box = $('chMsgs');
+  if (!c || H.mode !== 'conv' || !box) return chRender();
+  const end = toEnd || chNearEnd();
+  box.innerHTML = chMsgsHtml(c);
+  const e = $('chErr'); if (e) e.innerHTML = H.err ? `<div class="alert err"><span>⚠</span><span>${esc(H.err)}</span></div>` : '';
+  if (end) window.scrollTo({top: document.body.scrollHeight});
+}
 
 function chShow() {
   if (!hasChat()) return chRender();
@@ -240,8 +294,11 @@ function chRender() {
   if (!hasChat()) { box.innerHTML = '<div class="card"><div class="empty">Sign in to GSECL Connect to use Chat.</div></div>'; return; }
   const err = H.err ? `<div class="alert err"><span>⚠</span><span>${esc(H.err)}</span></div>` : '';
   if (!H.ready && !H.convs.length) { box.innerHTML = err + (H.busy || !H.err ? '<div class="card"><h2>Setting up secure chat…</h2><div class="sk" style="height:90px"></div></div>' : `<button class="btn" data-hact="retry">Try again</button>`); return; }
-  box.innerHTML = err + ({list: chListHtml, conv: chConvHtml, new: chNewHtml, group: chGroupHtml, info: chInfoHtml}[H.mode] || chListHtml)();
-  if (H.mode === 'conv') chRenderComposer();
+  // the conversation on screen: only its messages are drawn again (no flicker, the keyboard stays open)
+  if (H.mode === 'conv' && box.dataset.conv === String(H.open) && $('chMsgs') && $('chCompose')) return chPaint();
+  box.innerHTML = (H.mode === 'conv' ? '' : err) + ({list: chListHtml, conv: chConvHtml, new: chNewHtml, group: chGroupHtml, info: chInfoHtml}[H.mode] || chListHtml)();
+  box.dataset.conv = H.mode === 'conv' ? String(H.open) : '';
+  if (H.mode === 'conv') { chRenderComposer(); const e = $('chErr'); if (e && H.err) e.innerHTML = err; }
   const s = $('chSearch');
   if (s) { s.addEventListener('input', () => { H.q = s.value; const l = $('chPeople'); if (l) l.innerHTML = chPeopleHtml(H.mode === 'group'); }); }
 }
@@ -266,7 +323,7 @@ function chListHtml() {
 
 function chPeopleHtml(multi) {
   const q = H.q.trim().toLowerCase(), me = chMe();
-  const all = (C.dir?.employees || []).filter(e => String(e.emp_no) !== me);
+  const all = (C.dir?.employees || []).filter(e => String(e.emp_no) !== me && !e.app_blocked);   // a blocked employee cannot read chat
   const hit = q ? all.filter(e => (e._s || (e._s = [e.full_name, e.emp_no, e.designation, e.department, e.station, e.station_short].filter(Boolean).join(' ').toLowerCase())).includes(q)) : all;
   const sel = multi ? [...H.sel].map(chEmp) : [];
   const show = (q ? hit : multi ? sel.concat(all.filter(e => !H.sel.has(String(e.emp_no)))) : all).slice(0, 60);
@@ -297,6 +354,16 @@ function chGroupHtml() {
 function chConvHtml() {
   const c = chConv(H.open);
   if (!c) return '<div class="card"><div class="empty">Chat not found.</div></div>';
+  const me = chMe();
+  const sub = c.kind === 'group' ? c.members.length + ' members' : esc(chEmp(c.members.find(m => m !== me)).designation || '');
+  const other = c.kind === 'group' ? null : chEmp(c.members.find(m => m !== me));
+  return `<div class="chtop"><button class="chback" data-hact="list" aria-label="Back to chats">‹</button>${other ? conAvatar(other, 36) : `<span class="chgav" style="width:36px;height:36px;font-size:15px">${esc((c.title || '?').slice(0, 1).toUpperCase())}</span>`}
+      <div data-hact="info" data-harg="${c.id}" style="flex:1;min-width:0;cursor:pointer"><b>${esc(chTitle(c))}</b><span>${sub} · 🔒 encrypted</span></div><button class="chback" data-hact="info" data-harg="${c.id}" aria-label="Chat info" style="font-size:18px">ⓘ</button></div>
+    <div id="chErr"></div><div id="chMsgs">${chMsgsHtml(c)}</div>
+    <div id="chCompose"></div>`;
+}
+/** The messages of a conversation (bubbles, day separators, ticks, replies, documents). */
+function chMsgsHtml(c) {
   const me = chMe(), l = H.msgs[c.id] || [];
   let day = '', h = '';
   for (const m of l) {
@@ -313,17 +380,14 @@ function chConvHtml() {
         + (m.f ? `<div class="chfile" data-hact="file" data-harg="${m.id}"><span class="ico">📄</span><div><b>${esc(m.f.n)}</b><span>${chSize(m.f.s)} · ${m.opening ? 'opening…' : 'tap to open'}</span></div></div>` : '')
         + (m.t ? `<div class="cht">${esc(m.t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')}</div>` : '');
     }
-    h += `<div class="chb ${mine ? 'me' : ''}" data-hact="msg" data-harg="${m.id}">
+    h += `<div class="chb ${mine ? 'me' : ''}${m.pending ? ' new' : ''}${m.failed ? ' fail' : ''}" data-hact="msg" data-harg="${m.id}">
       ${c.kind === 'group' && !mine ? `<div class="chfrom">${esc(chName(m.from))}</div>` : ''}${body}
-      <div class="chmeta">${m.verified === false && !mine ? '<span title="Signature not checked">⚠ unverified · </span>' : ''}${new Date(m.at).toTimeString().slice(0, 5)}${mine && !m.deleted ? ' ' + chTicks(c, m) : ''}</div>
+      <div class="chmeta">${m.failed ? '<span class="chfail">Not sent · tap to try again</span> ' : ''}${m.verified === false && !mine ? '<span title="Signature not checked">⚠ unverified · </span>' : ''}${new Date(m.at).toTimeString().slice(0, 5)}${mine && !m.deleted ? ' ' + chTicks(c, m) : ''}</div>
       ${H.act === m.id && !m.deleted && mine ? chReadInfo(c, m) : ''}
-      ${H.act === m.id && !m.deleted ? `<div class="chacts">${m.t ? '<button data-hact="copy">Copy</button>' : ''}<button data-hact="reply">Reply</button>${mine ? '<button data-hact="del">Delete for everyone</button>' : ''}</div>` : ''}</div>`;
+      ${H.act === m.id && !m.deleted && m.id > 0 ? `<div class="chacts">${m.t ? '<button data-hact="copy">Copy</button>' : ''}<button data-hact="reply">Reply</button>${mine ? '<button data-hact="del">Delete for everyone</button>' : ''}</div>` : ''}</div>`;
   }
   const notes = (H.notes[c.id] || []).map(n => `<div class="chnote">${esc(n)}</div>`).join('');
-  const sub = c.kind === 'group' ? c.members.length + ' members' : esc(chEmp(c.members.find(m => m !== me)).designation || '');
-  return `<div class="chtop"><button class="chip" data-hact="list">‹</button><div data-hact="info" data-harg="${c.id}" style="flex:1;min-width:0;cursor:pointer"><b>${esc(chTitle(c))}</b><span>${sub} · 🔒 encrypted</span></div><button class="chip" data-hact="info" data-harg="${c.id}">Info</button></div>
-    <div id="chMsgs">${h || '<div class="empty">No messages yet. Messages are end-to-end encrypted.</div>'}${notes}</div>
-    <div id="chCompose"></div>`;
+  return (h || '<div class="chnote">🔒 Messages are end-to-end encrypted. No one outside this chat, not even GSECL Connect, can read them.</div>') + notes;
 }
 
 function chRenderComposer() {
@@ -333,11 +397,14 @@ function chRenderComposer() {
   const re = H.act && H.replying ? (H.msgs[H.open] || []).find(m => m.id === H.act) : null;
   el.innerHTML = `<div class="chcomp">${re ? `<div class="chre" style="grid-column:1/-1">Replying to <b>${esc(chName(re.from))}</b>: ${esc((re.t || '').slice(0, 60))} <span data-hact="noreply" style="float:right;cursor:pointer">✕</span></div>` : ''}
     <button class="chi" data-hact="attach" aria-label="Send a document" ${H.sending ? 'disabled' : ''}>📎</button>
-    <textarea id="chText" rows="1" placeholder="${H.sending ? 'Sending…' : 'Message'}" maxlength="6000"></textarea>
-    <button class="chi send" data-hact="send" aria-label="Send" ${H.sending ? 'disabled' : ''}>➤</button></div>`;
+    <textarea id="chText" rows="1" placeholder="${H.sending ? 'Sending the document…' : 'Message'}" maxlength="6000"></textarea>
+    <button class="chi send" data-hact="send" aria-label="Send">➤</button></div>`;
   const t = $('chText');
   t.value = keep;
   t.addEventListener('input', () => { t.style.height = 'auto'; t.style.height = Math.min(120, t.scrollHeight) + 'px'; });
+  t.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.shiftKey && matchMedia('(pointer: fine)').matches) { ev.preventDefault(); chSend(); } });
+  // the send button keeps the keyboard up (its tap does not take the focus from the text box)
+  el.querySelector('.send').addEventListener('pointerdown', ev => ev.preventDefault());
 }
 
 function chInfoHtml() {
@@ -389,9 +456,9 @@ document.addEventListener('click', e => {
     case 'send': return chSend();
     case 'attach': return chSendFile();
     case 'file': return chOpenFile(+arg);
-    case 'msg': if (e.target.closest('a,.chfile,.chacts')) return; H.act = H.act === +arg ? 0 : +arg; H.replying = false; return chRender();
-    case 'copy': { const m = (H.msgs[H.open] || []).find(x => x.id === H.act); if (m && Connect.copyText) Connect.copyText(m.t || ''); H.act = 0; return chRender(); }
-    case 'reply': H.replying = true; chRender(); return $('chText')?.focus();
+    case 'msg': if (e.target.closest('a,.chfile,.chacts')) return; if (chRetry(+arg)) return; if (+arg < 0) return; H.act = H.act === +arg ? 0 : +arg; H.replying = false; return chPaint();
+    case 'copy': { const m = (H.msgs[H.open] || []).find(x => x.id === H.act); if (m && Connect.copyText) Connect.copyText(m.t || ''); H.act = 0; return chPaint(); }
+    case 'reply': H.replying = true; chPaint(); chRenderComposer(); return $('chText')?.focus();
     case 'noreply': H.act = 0; H.replying = false; return chRenderComposer();
     case 'del': return chDelete(H.act);
   }
@@ -423,26 +490,36 @@ window.appBack = () => {
   .chgav { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; flex: none; color: #fff; font-weight: 700; font-size: 18px; background: linear-gradient(135deg, var(--brand2), var(--accent)); }
   .chk { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; color: transparent !important; font-size: 13px !important; }
   .chk.on { background: var(--accent); border-color: var(--accent); color: #fff !important; }
-  .chtop { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; align-items: center; background: var(--bg, var(--card)); padding: 8px 0; margin: -6px 0 6px; border-bottom: 1px solid var(--line); }
-  .chtop b { display: block; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .chtop span { font-size: 11.5px; color: var(--muted); }
-  #chMsgs { display: flex; flex-direction: column; gap: 6px; padding-bottom: 76px; }
-  .chb { max-width: 82%; align-self: flex-start; background: var(--card); border: 1px solid var(--cardline, var(--line)); border-radius: 14px 14px 14px 4px; padding: 7px 10px 5px; box-shadow: 0 1px 2px rgba(0,0,0,.04); word-wrap: break-word; }
-  .chb.me { align-self: flex-end; background: var(--brandsoft, #efe6f6); border-radius: 14px 14px 4px 14px; }
-  .cht { white-space: pre-wrap; font-size: 14.5px; } .cht a { color: var(--accent); }
-  .chfrom { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 2px; }
-  .chmeta { font-size: 10.5px; color: var(--muted); text-align: right; margin-top: 2px; }
-  .chtk { font-weight: 700; letter-spacing: -.18em; color: var(--muted); margin-left: 2px; } .chtk.rd { color: #1d9bf0; }
+  #v-chat { --wa-bg: #efeae2; --wa-in: #ffffff; --wa-out: #d9fdd3; --wa-ink: #111b21; --wa-sub: #667781; --wa-bar: #f0f2f5; --wa-green: #00a884; }
+  [data-theme="dark"] #v-chat { --wa-bg: #0b141a; --wa-in: #202c33; --wa-out: #005c4b; --wa-ink: #e9edef; --wa-sub: #8696a0; --wa-bar: #202c33; }
+  .chtop { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px; align-items: center; background: var(--wa-bar); color: var(--wa-ink); padding: 8px 10px; margin: -6px 0 0; border-radius: 12px 12px 0 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .chtop b { display: block; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .chtop span { font-size: 11.5px; color: var(--wa-sub); }
+  .chback { border: 0; background: none; color: var(--wa-ink); font-size: 26px; line-height: 1; width: 34px; height: 36px; padding: 0; flex: none; }
+  #chMsgs { display: flex; flex-direction: column; gap: 3px; padding: 10px 8px 84px; margin: 0; border-radius: 0 0 12px 12px; overflow-x: hidden; min-height: calc(100vh - 190px); background-color: var(--wa-bg);
+    background-image: radial-gradient(rgba(0,0,0,.035) 1px, transparent 1px); background-size: 18px 18px; }
+  .chb { position: relative; max-width: 80%; align-self: flex-start; background: var(--wa-in); color: var(--wa-ink); border-radius: 8px; border-top-left-radius: 0; padding: 6px 8px 4px 9px; margin: 1px 0 1px 8px; box-shadow: 0 1px .5px rgba(11,20,26,.13); word-wrap: break-word; }
+  .chb::before { content: ''; position: absolute; top: 0; left: -8px; border-top: 0 solid transparent; border-right: 8px solid var(--wa-in); border-bottom: 10px solid transparent; }
+  .chb.me { align-self: flex-end; background: var(--wa-out); border-radius: 8px; border-top-right-radius: 0; margin: 1px 8px 1px 0; }
+  .chb.me::before { left: auto; right: -8px; border-right: 0; border-left: 8px solid var(--wa-out); }
+  .chb.new { animation: chIn .18s ease-out; } @keyframes chIn { from { opacity: .3; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .chb.fail { box-shadow: 0 0 0 1.5px #dc2626; cursor: pointer; } .chfail { color: #dc2626; font-weight: 600; }
+  .cht { white-space: pre-wrap; font-size: 14.5px; line-height: 1.35; } .cht a { color: #027eb5; }
+  .chfrom { font-size: 12.5px; font-weight: 700; color: #06cf9c; margin-bottom: 1px; }
+  .chmeta { font-size: 11px; color: var(--wa-sub); text-align: right; margin-top: 1px; float: right; margin-left: 10px; position: relative; top: 4px; } .chb::after { content: ''; display: block; clear: both; }
+  .chtk { font-weight: 700; letter-spacing: -.2em; color: var(--wa-sub); margin-left: 3px; } .chtk.rd { color: #53bdeb; } .chtk.wait { letter-spacing: 0; font-weight: 400; font-size: 10px; } .chtk.bad { color: #dc2626; letter-spacing: 0; }
   .chri { font-size: 12px; color: var(--muted); margin-top: 6px; border-top: 1px dashed var(--line); padding-top: 5px; }
-  .chday { text-align: center; margin: 8px 0 2px; } .chday span { font-size: 11px; color: var(--muted); background: var(--soft, rgba(0,0,0,.05)); border-radius: 8px; padding: 2px 9px; }
-  .chnote { font-size: 12px; color: var(--muted); text-align: center; background: var(--soft, rgba(0,0,0,.04)); border-radius: 10px; padding: 6px 10px; margin: 4px 8%; }
+  .chday { text-align: center; margin: 8px 0 4px; position: sticky; top: 58px; z-index: 2; } .chday span { font-size: 11.5px; color: var(--wa-sub); background: var(--wa-in); border-radius: 8px; padding: 4px 11px; box-shadow: 0 1px .5px rgba(11,20,26,.13); }
+  .chnote { font-size: 12px; color: #54656f; text-align: center; background: #ffeecd; border-radius: 8px; padding: 6px 10px; margin: 6px 10%; box-shadow: 0 1px .5px rgba(11,20,26,.13); }
+  [data-theme="dark"] .chnote { background: #182229; color: #ffd279; }
   .chfile { display: flex; gap: 10px; align-items: center; background: rgba(0,0,0,.04); border-radius: 10px; padding: 8px 10px; cursor: pointer; margin-bottom: 4px; min-width: 200px; }
   .chfile .ico { font-size: 24px; } .chfile b { display: block; font-size: 13.5px; word-break: break-all; } .chfile span { font-size: 11.5px; color: var(--muted); }
   .chre { font-size: 12px; border-left: 3px solid var(--accent); background: rgba(0,0,0,.04); border-radius: 6px; padding: 4px 8px; margin-bottom: 4px; color: var(--muted); }
   .chacts { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; } .chacts button { border: 1px solid var(--line); background: var(--card); color: var(--accent); border-radius: 8px; font: inherit; font-size: 12px; padding: 4px 8px; }
-  .chcomp { position: fixed; left: 0; right: 0; bottom: 64px; z-index: 9; display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: end; padding: 8px 10px; background: var(--card); border-top: 1px solid var(--line); max-width: 760px; margin: 0 auto; }
-  .chcomp textarea { font: inherit; font-size: 15px; border: 1px solid var(--line); border-radius: 18px; padding: 8px 12px; resize: none; background: var(--card); color: var(--ink); max-height: 120px; }
-  .chi { border: 0; background: none; font-size: 21px; width: 40px; height: 40px; border-radius: 50%; color: var(--accent); }
-  .chi.send { background: var(--accent); color: #fff; font-size: 17px; } .chi:disabled { opacity: .5; }
+  .chcomp { position: fixed; left: 0; right: 0; bottom: 64px; z-index: 9; display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: end; padding: 6px 8px; background: var(--wa-bar); max-width: 760px; margin: 0 auto; }
+  .chcomp textarea { font: inherit; font-size: 15.5px; border: 0; border-radius: 22px; padding: 10px 14px; resize: none; background: var(--wa-in); color: var(--wa-ink); max-height: 120px; outline: none; box-shadow: 0 1px .5px rgba(11,20,26,.1); }
+  .chi { border: 0; background: none; font-size: 21px; width: 44px; height: 44px; border-radius: 50%; color: var(--wa-sub); }
+  .chi.send { background: var(--wa-green); color: #fff; font-size: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.2); } .chi.send:active { transform: scale(.92); } .chi:disabled { opacity: .5; }
+  .chp i { background: #25d366 !important; }
   .chsafe { font-size: 19px; letter-spacing: .06em; line-height: 1.7; font-weight: 700; margin: 10px 0 2px; word-spacing: 6px; }
   @media (min-width: 760px) { .chcomp { max-width: none; left: 10%; right: 10%; } }`;
   document.head.appendChild(s);

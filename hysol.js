@@ -244,6 +244,8 @@ function soRender() {
       ${csvBtn('soDays', 'GSECL_solar_generation', ['Date', 'Solar MU', 'GSECL (SLDC) MU', 'GSECL incl. solar MU'].concat(sites.map(s => s.name + ' MU')), days.map(x => [x.date, x.mu, x.gsecl, x.gsecl !== null ? +(x.gsecl + (x.mu || 0)).toFixed(3) : null].concat(sites.map(s => muOf(x.date, s.site)))))}</div>`;
   }
 
+  // the daily generation dashboard (PDF): solar, hydro and coal figures of the day (dashimp.js)
+  if (!d.outside && (edit.size || d.admin) && typeof diCard === 'function') h += diCard();
   // sites
   h += `<div class="card"><h2>${d.outside ? 'Your solar sites' : 'Solar sites'}</h2>${sites.length ? `<div style="overflow-x:auto"><table class="dt num"><tr><th style="text-align:left">Site</th><th>MW</th><th>${hsDay(yday)} MU</th><th>CUF</th><th>Month MU</th>${d.admin ? '<th></th>' : ''}</tr>
     ${sites.map(s => { const y = muOf(yday, s.site), mt = d.entries.filter(e => e.site === s.site && e.date.slice(0, 7) === yday.slice(0, 7)).reduce((t, e) => t + e.mu, 0), pk = (d.entries.find(e => e.site === s.site && e.date === yday) || {}).peak_mw;

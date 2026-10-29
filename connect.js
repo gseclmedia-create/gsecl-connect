@@ -176,6 +176,7 @@ const conBloodWord = w => { const b = w.toUpperCase().replace(/VE$/, ''); return
 const conEmpRow = e => `<div class="srow" data-cact="emp" data-carg="${esc(e.emp_no)}"><div style="display:flex;align-items:center;gap:10px">${conAvatar(e)}
   <div style="min-width:0;flex:1"><div class="nm" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(conName(e.full_name))}</div>
   <div class="vals" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc([e.designation, e.station_short || e.station].filter(Boolean).join(' · '))}</div></div>
+  ${e.app_blocked ? '<span class="badge" style="flex:none;background:#fee2e2;color:#991b1b">App access blocked</span>' : ''}
   ${C.showBlood && conBloodOf(e) ? `<span class="badge b-Forced" style="flex:none">${esc(conBloodOf(e))}</span>` : ''}
   ${e.mobile ? `<button class="refresh" data-cact="dial" data-carg="${esc(e.mobile)}" aria-label="Call" style="background:var(--soft);color:var(--accent)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.300-1.300a2 2 0 0 1 2.100-.400c.900.300 1.800.600 2.800.700a2 2 0 0 1 1.700 2z"/></svg></button>` : ''}</div></div>`;
 
@@ -223,12 +224,35 @@ function conDirMatches() {
   });
 }
 
+// The whole list is reachable: the first rows are drawn at once and the next ones as the end of the list scrolls into view.
+const CON_DIR_FIRST = 100, CON_DIR_STEP = 200;
 function conDirList() {
-  const list = conDirMatches(), shown = list.slice(0, 80);
-  const h = `<div class="card"><h2>${fmt(list.length)} employee${list.length === 1 ? '' : 's'} ${list.length > shown.length ? conMore(`showing first ${shown.length}; type to narrow`) : ''}</h2>
-    ${shown.map(conEmpRow).join('') || conEmpty(C.showBlood ? 'No employee of this blood group matches. Blood group is shown only where it is recorded in the employee record.' : 'No employee matches.')}</div>`;
+  const list = conDirMatches(), shown = list.slice(0, CON_DIR_FIRST);
+  C.dirShown = shown.length;
+  const h = `<div class="card"><h2>${fmt(list.length)} employee${list.length === 1 ? '' : 's'}</h2>
+    ${shown.map(conEmpRow).join('') || conEmpty(C.showBlood ? 'No employee of this blood group matches. Blood group is shown only where it is recorded in the employee record.' : 'No employee matches.')}
+    ${conDirMoreBtn(list.length)}</div>`;
   C.showBlood = false;                                   // the blood-group badge is for this list only
+  setTimeout(conDirWatch, 0);
   return h;
+}
+const conDirMoreBtn = total => total > C.dirShown ? `<div id="conDirMore" style="text-align:center;padding:10px 0 2px">${conBtn(`Show more (${fmt(total - C.dirShown)} more)`, 'dirmore')}</div>` : '';
+/** The next rows of the same list, added below the ones shown. */
+function conDirAppend() {
+  const more = $('conDirMore'); if (!more) return;
+  const list = conDirMatches(), next = list.slice(C.dirShown, C.dirShown + CON_DIR_STEP);
+  C.dirShown += next.length;
+  more.insertAdjacentHTML('beforebegin', next.map(conEmpRow).join(''));
+  C.showBlood = false;
+  if (C.dirShown >= list.length) more.remove(); else more.outerHTML = conDirMoreBtn(list.length);
+  conDirWatch();
+}
+function conDirWatch() {
+  const more = $('conDirMore');
+  if (!more || typeof IntersectionObserver === 'undefined') return;
+  if (C.dirObs) C.dirObs.disconnect();
+  C.dirObs = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) { C.dirObs.disconnect(); conDirAppend(); } }, {rootMargin: '600px 0px'});
+  C.dirObs.observe(more);
 }
 
 /** Departments that have someone at the chosen station (all departments when no station is chosen), with the count. */
@@ -300,12 +324,13 @@ function conDetailEmp(id) {
       <div style="min-width:0"><div style="font-size:18px;font-weight:700">${esc(name)}</div>
       <div class="muted" style="font-size:13px">${esc(e.designation || '')}</div>
       <div class="muted" style="font-size:12.5px">Employee no. ${esc(e.emp_no)}${e.class ? ' · Class ' + esc(e.class) : ''}</div></div></div>
+    ${e.app_blocked ? '<div class="alert err" style="margin:12px 0 0"><span>⛔</span><span>App access blocked: this employee cannot sign in to GSECL Connect. Contact details are kept in the directory.</span></div>' : ''}
     <div class="oq" style="box-shadow:none;padding:0;margin:14px 0 0;border:0"><div class="meta num">
       ${conField('Station', esc(e.station || e.station_short || ''))}${conField('Department', esc(e.department || ''))}
       ${conField('Mobile', esc(e.mobile || ''))}${conField('Office phone', esc([e.office_phone, e.extension && 'Ext ' + e.extension].filter(Boolean).join(' · ')))}
       ${conField('E-mail', esc(e.email || ''))}${conField('Blood group', esc(e.blood_group || ''))}
     </div></div>
-    <div>${typeof window.chatWith === 'function' && typeof window.Chat !== 'undefined' ? conBtn('Message (encrypted)', 'chatwith', e.emp_no, true) + ' ' : ''}${act('Call', 'dial', e.mobile)} ${act('SMS', 'sms', e.mobile)} ${act('WhatsApp', 'whatsapp', e.mobile)} ${act('Call office', 'dial', e.office_phone)} ${act('E-mail', 'email', e.email)}
+    <div>${!e.app_blocked && typeof window.chatWith === 'function' && typeof window.Chat !== 'undefined' ? conBtn('Message (encrypted)', 'chatwith', e.emp_no, true) + ' ' : ''}${act('Call', 'dial', e.mobile)} ${act('SMS', 'sms', e.mobile)} ${act('WhatsApp', 'whatsapp', e.mobile)} ${act('Call office', 'dial', e.office_phone)} ${act('E-mail', 'email', e.email)}
       ${conBtn('Save contact', 'savecontact', e.emp_no)} ${conBtn('Share', 'sharecontact', e.emp_no)}</div></div>`;
 }
 
@@ -424,6 +449,7 @@ document.addEventListener('click', async e => {
     case 'birthdays': return conGo({type: 'birthdays'});
     case 'cat': C.circ.cat = arg; return conLoadList('circ', true);
     case 'more': return conLoadList(arg, false);
+    case 'dirmore': return conDirAppend();
     case 'syncdir': C.busy++; conRender(); await conLoadDirectory(true); C.busy--; return conRender();
     case 'dial': e.stopPropagation(); return Connect.dial(arg);
     case 'sms': return Connect.sms(arg);

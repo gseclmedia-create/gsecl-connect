@@ -1570,7 +1570,7 @@ function render() { renderHeader(); renderAlerts(); renderHome(); renderGujarat(
 
 // ---------------------------------------------------------------- interaction
 
-const SECTION = {home: 'gen', stations: 'gen', outages: 'gen', grid: 'gen', merit: 'gen', hydro: 'gen', solar: 'gen', alerts: 'gen', dsm: 'dsm', coal: 'coal', safety: 'safety', connect: 'connect', chat: 'chat', info: 'me'};
+const SECTION = {home: 'gen', stations: 'gen', outages: 'gen', grid: 'gen', merit: 'gen', hydro: 'gen', solar: 'gen', u8: 'connect', alerts: 'gen', dsm: 'dsm', coal: 'coal', safety: 'safety', connect: 'connect', chat: 'chat', info: 'me'};
 function show(v) {
   // Inside the Android app's native shell: the dashboard is native, and the native bar follows the page's section.
   if (window.NATIVE_SHELL && hasNative('shellSection') && v === 'home') { Native.shellSection('native'); return; }
@@ -1590,6 +1590,7 @@ function show(v) {
   if (v === 'dsm') { dsmShow(); if (typeof dlShow === 'function') dlShow(); }
   if (v === 'hydro' && typeof hyShow === 'function') hyShow();
   if (v === 'solar' && typeof soShow === 'function') soShow();
+  if (v === 'u8' && typeof u8Show === 'function') u8Show();
   if (v === 'coal') kShow();
   if (v === 'safety') ySafetyShow();
   if (v === 'connect') conShow();
@@ -1687,6 +1688,21 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What changed in this version (shown in Profile › About); the newest first. */
 const RELEASE_NOTES = [
+  ['3.16.5', '28 Oct 2026', [
+    'Connect › People: every employee of the list is shown (more load as you scroll, no longer the first 80 only); those whose app access is off are marked “App access blocked”',
+    'WTPS Unit 8 › Performance & losses: unit and turbine heat rate against design at the load, boiler efficiency by the loss method, condenser (CW flow and TTD), HP heaters, the controllable losses ranked in kcal/kWh, coal t/day and ₹ lakh/day with what to check, and health checks (bearings, steam chemistry, emissions); design values and coal analysis set by administrators',
+  ]],
+  ['3.16.4', '28 Oct 2026', [
+    'Connect › People: an employee whose app access is blocked stays in the directory with an “App access blocked” mark (contact details kept; not offered for new chats)',
+    'Connect › More › WTPS Unit 8: live plant parameters of Wanakbori Unit 8 (800 MW) — load gauge, 20 KPIs with 24 h sparklines and trends (6 h to 30 days), every parameter grouped by plant area (boiler, turbine, bearings, generator, SWAS, mills, condenser & feed water, flue gas …), read every 15 s while open; access on request, approved by the super administrator',
+  ]],
+  ['3.16.3', '28 Oct 2026', [
+    'Daily dashboard import: R’NESDA I and II no longer mixed up; clearer message (same / different / skipped)',
+  ]],
+  ['3.16.2', '28 Oct 2026', [
+    'Chat: a message appears at once and is sent in the background (🕓 while on its way, ✓ sent, blue ✓✓ read; a message that could not go shows “tap to try again”); the keyboard stays open and the screen no longer redraws while you type; new messages every 1.5–3 s in an open chat; WhatsApp-style look',
+    'Generation › Solar: import the GSECL daily generation dashboard (PDF) — solar MU and peak of every site, hydro generation, coal and lignite receipt, consumption and stock of the day are read, shown and saved (missing figures filled in; solar sites not yet listed are added for administrators)',
+    'Daily management report: redesigned with charts — the day against the previous day, energy by fuel, 30-day trends of GSECL energy, Gujarat demand and GSECL share, PAF and PLF, DSM, coal stock, PAF against target and fixed cost not recovered']],
   ['3.16.1', '28 Oct 2026', [
     'DSM › Estimate: the schedule now includes the bilateral and power exchange sales of a unit (SLDC sends them apart from the GUVNL schedule); stations selling on the exchange (e.g. WTPS 8, Sikka) no longer show false over-injection, so days were wrongly receivable',
     'DSM › SLDC weekly reports: fetching no longer stops with “UNIQUE constraint failed: notices.url” when SLDC lists one report under two weeks']],
