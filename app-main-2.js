@@ -1714,6 +1714,9 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What changed in this version (shown in Profile › About); the newest first. */
 const RELEASE_NOTES = [
+  ['3.17.1', '2 Nov 2026', [
+    'Circulars assistant on Google Gemini; circulars are read automatically (published in the app or put in the Drive folder), no button to press',
+  ]],
   ['3.17.0', '2 Nov 2026', [
     'Circulars: ask the AI assistant (Connect › Circulars) — LTC, leave, allowances … answered from the circulars for your designation and class, with the circulars it used',
     'Units: the sync alert comes once a unit has generated above 10 MW for 5 minutes (also when its outage row is dropped)',

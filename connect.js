@@ -304,9 +304,8 @@ function conCircAsk() {
     ${CA.err ? conErr(CA.err) : ''}
     <label for="conAskQ" class="muted" style="font-size:12px;display:block;margin-top:${CA.hist.length ? 10 : 0}px">${CA.hist.length ? 'Ask a follow-up, or a new question' : 'Your question'}</label>
     <textarea class="search" id="conAskQ" rows="2" maxlength="600" placeholder="e.g. What is my LTC entitlement? · Leave encashment for Class III · Uniform allowance rate" style="margin:4px 0 8px;resize:vertical">${esc(CA.q)}</textarea>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${conBtn(CA.busy ? 'Asking…' : 'Ask', 'circask', '', true)}${CA.hist.length ? conBtn('New conversation', 'circnew') : ''}
-      ${st && st.admin ? conBtn(CA.reading ? 'Reading circulars…' : 'Read circulars now', 'circread') : ''}</div>
-    <div class="note-src" style="margin-top:8px">Answers are written by AI (Claude) from the circulars${st ? ` (${st.read} read so far)` : ''} for your designation and class, and can be wrong: check the circular named before acting on it. Your question goes to Anthropic, the AI provider.${CA.note ? ' ' + esc(CA.note) : ''}</div></div>`;
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${conBtn(CA.busy ? 'Asking…' : 'Ask', 'circask', '', true)}${CA.hist.length ? conBtn('New conversation', 'circnew') : ''}</div>
+    <div class="note-src" style="margin-top:8px">Answers are written by AI${st && st.ai ? ' (' + esc(st.ai === 'Gemini' ? 'Google Gemini' : st.ai) + ')' : ''} from the circulars${st ? ` (${st.read} read so far; new ones are read automatically)` : ''} for your designation and class, and can be wrong: check the circular named before acting on it. Your question goes to ${st && st.ai === 'Claude' ? 'Anthropic' : 'Google'}, the AI provider.${CA.note ? ' ' + esc(CA.note) : ''}</div></div>`;
 }
 async function conCircAskGo() {
   const q = String(CA.q || '').trim();
