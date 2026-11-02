@@ -144,9 +144,14 @@ function kTabSum() {
   }).join('')}<tr class="hl"><td>Total</td><td>${rakes.length}</td><td>${inside}</td><td>${rakes.length - inside}</td></tr></table></div>`;
 
   const today = kEvents(kToday(), kToday());
+  // the day's account of each station: balance from the previous day + received - released = inside now
+  const acc = st.map(s => { const now = rakes.filter(r => r.station_to === s && kInside(r)).length, rec = today.filter(e => e.station === s && e.type === 'RECEIVED').length,
+    rel = today.filter(e => e.station === s && e.type === 'RELEASED').length; return {s, prev: Math.max(0, now - rec + rel), rec, rel, now}; });
+  const sum = k => acc.reduce((t, a) => t + a[k], 0);
   h += `<div class="card"><h2>Today's activity <span class="more" data-kact="tab" data-karg="act">History ›</span></h2>
-    <table class="dt num"><tr><th>Station</th><th>Received</th><th>Released</th></tr>${st.map(s => `<tr><td>${esc(s)}</td><td>${today.filter(e => e.station === s && e.type === 'RECEIVED').length}</td><td>${today.filter(e => e.station === s && e.type === 'RELEASED').length}</td></tr>`).join('')}</table>
-    <div class="note-src">Receipts and releases are worked out on this phone by comparing one sync with the next, so they are complete only while the app keeps syncing.</div></div>`;
+    <div style="overflow-x:auto"><table class="dt num"><tr><th>Station</th><th>Pre. day balance</th><th>Received</th><th>Released</th><th>Inside now</th></tr>${acc.map(a => `<tr><td>${esc(a.s)}</td><td>${a.prev}</td><td>${a.rec}</td><td>${a.rel}</td><td><b>${a.now}</b></td></tr>`).join('')}
+      <tr class="hl"><td>Total</td><td>${sum('prev')}</td><td>${sum('rec')}</td><td>${sum('rel')}</td><td>${sum('now')}</td></tr></table></div>
+    <div class="note-src">Inside now = rakes inside the station in FOIS now; pre. day balance = inside now − received + released today. Receipts and releases are worked out on this phone by comparing one sync with the next, so they are complete only while the app keeps syncing.</div></div>`;
   h += `<div class="card"><h2>Saved data</h2><p class="muted" style="font-size:12.5px;margin:0">Rakes and indents from the last sync are kept on this phone and shown when there is no network.</p>${kBtn('Clear saved rakes and sync again', 'wipe')}</div>`;
   return h;
 }

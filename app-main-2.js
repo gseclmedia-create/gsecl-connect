@@ -1,12 +1,13 @@
 const OUTAGE_EVERY = 300, IEX_EVERY = 300;   // seconds; GSECL feed and SLDC data follow the refresh setting (S.set.refresh)
 const SET_DEFAULT_EARLY = {refresh: 60, theme: 'system', palette: 'gsecl', seen: 0};
 const FUEL_COLOR = {Coal: 'var(--coal)', Lignite: 'var(--lignite)', Gas: 'var(--gas)', Hydro: 'var(--hydro)'};
-const TYPE_COLOR = {Forced: 'var(--forced)', Planned: 'var(--planned)', RSD: 'var(--rsd)', Outage: 'var(--outage)', Synchronising: 'var(--sync)', Awaited: 'var(--off)', Standby: 'var(--standby)'};
-// Not generating and not on SLDC's outage list: a coal / lignite unit's reason is awaited; gas and hydro units are run
-// on demand, so they are on standby.
-const IDLE_STATE = {Coal: 'Awaited', Lignite: 'Awaited', Gas: 'Standby', Hydro: 'Standby'};
+const TYPE_COLOR = {Forced: 'var(--forced)', Planned: 'var(--planned)', RSD: 'var(--rsd)', Outage: 'var(--outage)', Awaited: 'var(--off)', Standby: 'var(--standby)', Off: 'var(--off)'};
+// Not generating and not on SLDC's outage list: a coal / lignite unit's reason is awaited; gas units are run on demand
+// (standby); Ukai and Kadana hydro start and stop with the water the irrigation department releases, never listed as
+// outages, so they are simply off.
+const IDLE_STATE = {Coal: 'Awaited', Lignite: 'Awaited', Gas: 'Standby', Hydro: 'Off'};
 const STATE_HINT = {Awaited: 'Not generating; outage information awaited from SLDC', Standby: 'Not generating; not on the SLDC outage list (run on demand)',
-  Synchronising: 'Generating; counted as synchronised after ' + SYNC_MIN + ' minutes above ' + SYNC_MW + ' MW'};
+  Off: 'Not generating (runs with the water released for irrigation)'};
 
 const S = {busy: {}, set: {...SET_DEFAULT_EARLY}, gsecl: null, home: null, outages: null, iex: null, merit: null, stale: {}, guj: '', loading: 0, fuel: '', type: '', metric: 'freq', range: 24, basis: 'gen', mix: '', q: '', open: new Set()};
 let tick = 0;
@@ -50,11 +51,10 @@ const outRows = (kind, key) => S.outages?.ok ? (S.outages.match[kind][key] || []
 
 function unitState(u) {
   const o = outRows('units', u.key), mw = u.mw ?? 0;
-  // generating, but still on the outage list or below SYNC_MW / SYNC_MIN: synchronising
-  if (u.mw !== null && mw > RUN_MW && (o.length || mw <= SYNC_MW)) return {type: 'Synchronising', color: TYPE_COLOR.Synchronising, outs: o};
+  // generating: running (an outage row SLDC has not cleared yet stays listed until the unit is synchronised)
+  if (u.mw !== null && mw > RUN_MW) return {type: 'Running', color: 'var(--run)', outs: o};
   if (o.length) return {type: o[0].type, color: TYPE_COLOR[o[0].type], outs: o};
   if (u.mw === null) return {type: null, color: 'var(--line)', outs: []};
-  if (mw > RUN_MW) return {type: 'Running', color: 'var(--run)', outs: []};
   const idle = IDLE_STATE[u.fuel] || 'Awaited';
   return {type: idle, color: TYPE_COLOR[idle], outs: []};
 }
@@ -62,11 +62,23 @@ const outDetail = o => esc([o.since && `Since ${o.since}`, o.revised && `Expecte
 
 // ---------------------------------------------------------------- loading
 
+/** The SLDC API's schedule and DC of the present block (sldc_now on the service): read before the live data, at most
+ *  every 5 minutes and at each new block. */
+async function sldcApiLoad() {
+  if (typeof conCall !== 'function' || (typeof hasConnect === 'function' && !hasConnect())) return;
+  const d = new Date(), blk = Math.floor((d.getHours() * 60 + d.getMinutes()) / 15) + 1;
+  if (SLDC_API.block === blk && Date.now() - SLDC_API.at < 5 * 60e3) return;
+  const r = await conCall('sldc_now', {});
+  if (r.ok && r.data && r.data.blocks) Object.assign(SLDC_API, {date: r.data.date, block: r.data.block, ver: r.data.ver || null, blocks: r.data.blocks, at: Date.now()});
+  else SLDC_API.at = Date.now();   // not again for 5 minutes (the feed is used meanwhile)
+}
+
 async function load(what) {
   if (S.busy[what]) return;   // previous request for this source still running (short refresh interval)
   S.busy[what] = true;
   S.loading++; $('refreshBtn').classList.add('spin'); $('meBtn').classList.add('busy');
   try {
+    if (what === 'gsecl') { try { await sldcApiLoad(); } catch (e) { /* the feed's figures meanwhile */ } }
     const fn = {gsecl: gseclLive, home: sldcHome, outages: sldcOutages, iex: iexPrices, merit: sldcMeritCheck}[what];
     const res = await fn();
     // A failed refresh keeps the last good data on screen and reports the error, instead of blanking the screen.
@@ -429,14 +441,14 @@ function gdUnitsHtml(g) {
     const units = s.blocks.flatMap(b => b.units);
     const run = units.filter(u => (u.mw ?? 0) > RUN_MW).length; on += run; all += units.length;
     return `<div class="gub"><div class="h">${esc(s.station)}<span>${run}/${units.length} on bar · ${fmt(s.totals.gen)} MW</span></div><div class="gtiles">${units.map(u => {
-      const st = unitState(u), running = (u.mw ?? 0) > RUN_MW, idle = st.type === 'Awaited' || st.type === 'Standby';
+      const st = unitState(u), running = (u.mw ?? 0) > RUN_MW, idle = st.type === 'Awaited' || st.type === 'Standby' || st.type === 'Off';
       const colour = st.type === 'Running' ? FUEL_COLOR[s.fuel] : st.type && !idle ? TYPE_COLOR[st.type] : null;
       const tip = u.label + (st.type ? ' · ' + (STATE_HINT[st.type] || st.type) : '') + (st.outs[0] ? ' · ' + [st.outs[0].since && 'since ' + st.outs[0].since, st.outs[0].revised && 'expected ' + st.outs[0].revised].filter(Boolean).join(', ') : '');
-      return `<div class="gtile2 ${colour ? '' : 'off'} ${st.type === 'Synchronising' ? 'syncing' : ''}" style="${colour ? '--c:' + colour : ''}" title="${esc(tip)}" aria-label="${esc(tip)}"><b class="num">${running ? fmt(u.mw) : st.type ? esc(st.type) : '—'}</b>${esc(u.label.replace(/^Unit /, 'U-'))}</div>`;
+      return `<div class="gtile2 ${colour ? '' : 'off'}" style="${colour ? '--c:' + colour : ''}" title="${esc(tip)}" aria-label="${esc(tip)}"><b class="num">${running ? fmt(u.mw) : st.type ? esc(st.type) : '—'}</b>${esc(u.label.replace(/^Unit /, 'U-'))}</div>`;
     }).join('')}</div></div>`;
   }).join('');
   $('gdUnitsNote').textContent = `${on} of ${all} units on bar`;
-  return h + `<div class="keyline"><span><i style="width:12px;height:10px;border-radius:3px;background:var(--coal)"></i>Running (fuel colour, MW)</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--forced)"></i>Forced</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--planned)"></i>Planned</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--rsd)"></i>RSD</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--sync)"></i>Synchronising (&lt; ${SYNC_MIN} min above ${SYNC_MW} MW)</span><span><i style="width:12px;height:10px;border-radius:3px;border:1px dashed var(--muted)"></i>Awaited (coal / lignite: outage information awaited) · Standby (gas / hydro)</span></div>`;
+  return h + `<div class="keyline"><span><i style="width:12px;height:10px;border-radius:3px;background:var(--coal)"></i>Running (fuel colour, MW)</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--forced)"></i>Forced</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--planned)"></i>Planned</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--rsd)"></i>RSD</span><span><i style="width:12px;height:10px;border-radius:3px;border:1px dashed var(--muted)"></i>Awaited (coal / lignite: outage information awaited) · Standby (gas) · Off (hydro)</span></div>`;
 }
 
 function gdGridHtml(g) {
@@ -1704,10 +1716,13 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 const RELEASE_NOTES = [
   ['3.17.0', '2 Nov 2026', [
     'Circulars: ask the AI assistant (Connect › Circulars) — LTC, leave, allowances … answered from the circulars for your designation and class, with the circulars it used',
-    'Units: a unit counts as synchronised only after 5 minutes above 7 MW (sync alert and outage list); until then it shows Synchronising',
-    'Unit status: a unit not generating and not on SLDC’s outage list shows Awaited (coal / lignite: outage information awaited) or Standby (gas / hydro) instead of Off',
+    'Units: the sync alert comes once a unit has generated above 10 MW for 5 minutes (also when its outage row is dropped)',
+    'Unit status: a coal / lignite unit not generating and not on SLDC’s outage list shows Awaited (outage information awaited); gas units Standby; Ukai and Kadana hydro Off (run with irrigation water)',
+    'Kutch Lignite Units 1 and 2 (decommissioned) also left out of Stations & units, boiler certificates and AOH planning',
     'Dhuvaran: GT-1, STG-1, GT-2 and STG-2 shown and matched to SLDC separately (was “GT1+STG1” twice); Kutch Lignite Units 1 and 2 removed (decommissioned)',
     'Gujarat page in sections (Now, Demand & forecast, GSECL MU, Trends, Market); visible keyboard focus throughout',
+    'Schedule and DC on the Dashboard and Stations from the SLDC scheduling API, block-wise (the GSECL feed only where SLDC has no figure, marked); PAF / PLF only from SLDC’s DC and schedule',
+    'Coal › Today’s activity: previous-day balance, received, released and inside now for each station',
   ]],
   ['3.16.8', '2 Nov 2026', [
     'Built so that phone security scanners do not mistake the app for malware (readable code names, all signature schemes); no change in what the app does',

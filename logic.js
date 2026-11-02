@@ -188,7 +188,7 @@ function blockStat(pts) {
 const RUN_MW = 2;
 // A unit is synchronised once it has generated above SYNC_MW for SYNC_MIN minutes: only then is its outage row
 // dropped and the sync alert raised (a few MW while rolling or on trial is not a synchronisation).
-const SYNC_MW = 7, SYNC_MIN = 5;
+const SYNC_MW = 10, SYNC_MIN = 5;
 const SYNC = {since: {}};
 /** Since when each unit has been above SYNC_MW (at first sight, from the phone's own unit readings). */
 function syncTrack(snap) {
@@ -268,6 +268,20 @@ function feedTimestamp(t) {
 }
 
 /** PPA-block view: unit generation summed per block against the block's SG and DC. */
+/**
+ * Schedule and DC of the current 15-minute block from the SLDC scheduling API (the GSECL Connect service keeps the
+ * day's block-wise DC and SG of every unit, with revisions): {date, block, at, blocks: {blockKey: {sg, dc}}}.
+ * Used in place of the GSECL feed's raw figures; set by the page (sldc_now) and ignored once it is not the
+ * present block of today.
+ */
+const SLDC_API = {date: '', block: 0, at: 0, ver: null, blocks: {}};
+function sldcApiBlock(key) {
+  const d = new Date(), iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const blk = Math.floor((d.getHours() * 60 + d.getMinutes()) / 15) + 1;
+  if (SLDC_API.date !== iso || SLDC_API.block !== blk) return null;
+  return SLDC_API.blocks[key] || null;
+}
+
 function buildSnapshot(p, rt = {}) {
   const usedSg = new Set(), usedDc = new Set(), usedUnits = new Set();
   // SG/DC totals and deviation stay null when no block carried a value, so "no data" never reads as 0 MW.
@@ -276,15 +290,18 @@ function buildSnapshot(p, rt = {}) {
   const stations = STATIONS.map(st => {
     const stTot = {gen: 0, sg: null, dc: null};
     const blocks = st.blocks.map(b => {
-      const sgFeed = sumSelected(p.sg, b.sg, usedSg), dc = sumSelected(p.dc, b.dc, usedDc);
-      const r = rt[b.key];
-      const sg = r?.sg ?? sgFeed;
-      const sgSrc = r?.sg != null ? 'SLDC' : sgFeed !== null ? 'GSECL feed' : null;
+      const sgFeed = sumSelected(p.sg, b.sg, usedSg), dcFeed = sumSelected(p.dc, b.dc, usedDc);
+      const r = rt[b.key], api = sldcApiBlock(b.key);
+      // schedule and DC: the SLDC API's block figures first; SLDC's real-time page, then the GSECL feed, only without them
+      const sg = api && api.sg !== null ? api.sg : r?.sg ?? sgFeed;
+      const sgSrc = api && api.sg !== null ? 'SLDC API' : r?.sg != null ? 'SLDC' : sgFeed !== null ? 'GSECL feed' : null;
+      const dc = api && api.dc !== null ? api.dc : dcFeed;
+      const dcSrc = api && api.dc !== null ? 'SLDC API' : dcFeed !== null ? 'GSECL feed' : null;
       let gen = null;
       const units = Object.entries(b.units).map(([key, [label, sldc]]) => {
         const mw = key in p.units ? runMw(p.units[key]) : null;
         if (mw !== null) { usedUnits.add(key); gen = (gen ?? 0) + mw; }
-        return {key, label, sldc, mw, fuel: s.fuel, techMin: TECH_MIN[key] ?? null};
+        return {key, label, sldc, mw, fuel: st.fuel, techMin: TECH_MIN[key] ?? null};
       });
       // A block with any unit missing from the feed would under-count; use SLDC's block total instead.
       let genSrc = gen === null ? null : 'units';
@@ -300,7 +317,7 @@ function buildSnapshot(p, rt = {}) {
       const techMinOnBar = listed.length ? listed.reduce((s, u) => s + u.techMin, 0) : null;
       const techMinComplete = onBar.every(u => u.techMin !== null);
       const merit = MERIT.blocks[b.key] || null;
-      return {key: b.key, label: b.label, gen, sg, dc, cap: r?.cap ?? null, sgSrc, genSrc, noDc: b.noDc || null,
+      return {key: b.key, label: b.label, gen, sg, dc, cap: r?.cap ?? null, sgSrc, dcSrc, genSrc, noDc: b.noDc || null,
         techMinOnBar, techMinComplete, techMinNote: TECH_MIN_BLOCK_NOTE[b.key] || null,
         merit: merit && merit.map(([cost, rank, note]) => ({cost, rank, note: note || null})),
         deviation: gen !== null && sg !== null ? gen - sg : null, units};
@@ -327,6 +344,8 @@ function buildSnapshot(p, rt = {}) {
       ...(b.gen === null ? [`Generation: ${b.label}`] : [])])),
     fallback: {
       sgFeed: stations.flatMap(s => s.blocks.filter(b => b.sgSrc === 'GSECL feed').map(b => b.label)),
+      dcFeed: stations.flatMap(s => s.blocks.filter(b => b.dcSrc === 'GSECL feed').map(b => b.label)),
+      api: stations.some(s => s.blocks.some(b => b.sgSrc === 'SLDC API' || b.dcSrc === 'SLDC API')) ? {block: SLDC_API.block, ver: SLDC_API.ver} : null,
       genSldc: stations.flatMap(s => s.blocks.filter(b => b.genSrc === 'SLDC').map(b => b.label)),
     },
     feedSg: p.sg, feedDc: p.dc,   // fuel-wise lines (e.g. UGBPS_2_SPOT) for gas merit entries
@@ -491,8 +510,7 @@ function latestOutages(rows) {
 
 /**
  * Outage rows of units synchronised now (above SYNC_MW for SYNC_MIN minutes) are left out: SLDC has not yet cleared
- * the row. A unit generating for less than that keeps its row (shown as synchronising). Returns the rows to show and
- * the ones dropped.
+ * the row. A unit generating for less than that keeps its row. Returns the rows to show and the ones dropped.
  */
 function withoutSynced(rows, snap) {
   if (!snap || !snap.ok) return {rows, synced: []};
