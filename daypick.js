@@ -131,3 +131,24 @@ function dpDayStt(iso, then) {
   }
   return c && c.data ? c.data : null;
 }
+
+// ---------------------------------------------------------------- GSECL solar by day
+// SLDC's GSECL generation is thermal, gas and hydro: GSECL's own solar sites are entered by the sites (Generation ›
+// Solar, a day later). Once a day's solar is entered, every GSECL total of that day adds it (marked "incl. solar").
+const GSOL = {days: null, at: 0, busy: false, redraw: new Set()};
+function gsolLoad() {
+  if (GSOL.busy || typeof conCall !== 'function' || (typeof hasConnect === 'function' && !hasConnect())) return;
+  if (GSOL.days && Date.now() - GSOL.at < 15 * 60e3) return;
+  GSOL.busy = true;
+  conCall('solar_mu_days', {days: 45}).then(r => {
+    GSOL.busy = false; GSOL.at = Date.now();
+    if (!r.ok) return;
+    GSOL.days = r.data.days || {};
+    const fns = [...GSOL.redraw]; GSOL.redraw.clear(); fns.forEach(f => { try { f(); } catch (e) { /* the view was left */ } });
+  });
+}
+/** {mu, n} GSECL solar of a finished day, or null (not entered yet, or not known); redraw is called once it is read. */
+function gsolDay(iso, redraw) {
+  if (!GSOL.days || Date.now() - GSOL.at >= 15 * 60e3) { if (redraw) GSOL.redraw.add(redraw); gsolLoad(); }
+  return GSOL.days && GSOL.days[iso] ? GSOL.days[iso] : null;
+}

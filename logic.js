@@ -43,23 +43,24 @@ const STATIONS = [
     {key: 'STPS_3_4', rt: ['Sikka(3-4)', 0], label: 'STPS U-3,4', sg: ['STPS_3_4'], dc: ['STPS_3_4'], units: {sik1: ['Unit 3', 'STPS-3'], sik2: ['Unit 4', 'STPS-4']}},
   ]},
   {station: 'Kutch Lignite TPS', fuel: 'Lignite', sldc: /^KLTPS/, blocks: [
-    {key: 'KLTPS1-3', rt: ['KLTPS(3)+(4)', 0], label: 'KLTPS U-1,2,3', sg: ['KLTPS1-3'], dc: ['KLTPS1-3'], units: {
-      klt1: ['Unit 1', 'KLTPS-1'], klt2: ['Unit 2', 'KLTPS-2'], klt3: ['Unit 3', 'KLTPS-3']}},
+    // Units 1 and 2 are decommissioned: the feed block keeps its name (KLTPS1-3) but has Unit 3 only.
+    {key: 'KLTPS1-3', rt: ['KLTPS(3)+(4)', 0], label: 'KLTPS U-3', sg: ['KLTPS1-3'], dc: ['KLTPS1-3'], units: {
+      klt3: ['Unit 3', 'KLTPS-3']}},
     {key: 'KLTPS4', rt: ['KLTPS(3)+(4)', 1], label: 'KLTPS U-4', sg: ['KLTPS4'], dc: ['KLTPS4'], units: {klt4: ['Unit 4', 'KLTPS-4']}},
   ]},
   {station: 'Bhavnagar Lignite TPS', fuel: 'Lignite', sldc: /^BLTPS/, blocks: [
     {key: 'BLTPS', rt: ['BLTPS', 0], label: 'BLTPS U-1,2', sg: ['BLTPS'], dc: ['BLTPS'], units: {bec1: ['Unit 1', 'BLTPS-1'], bec2: ['Unit 2', 'BLTPS-2']}},
   ]},
-  // Dhuvaran is run as three combined-cycle stages; each feed point belongs to one stage (GT + STG together):
-  // Stage-I = dgb1 + dgb2, Stage-II = dgb3 + dgb4, Stage-III = dg21. SLDC lists the GT and STG of each stage
-  // separately (sldcNames), so its outages are shown against the stage block.
+  // Dhuvaran is run as three combined-cycle stages: Stage-I = dgb1 (GT-1) + dgb2 (STG-1), Stage-II = dgb3 (GT-2) +
+  // dgb4 (STG-2), Stage-III = dg21 (one feed point for GT3 + STG3). SLDC lists the GT and STG of each stage
+  // separately: each feed point is matched to its own SLDC row.
   {station: 'Dhuvaran GBPS', fuel: 'Gas', sldc: /^DGB/, blocks: [
     {key: 'DGBPS_1', rt: ['Dhuvaran (Gas)(I+II)+(III)', 0], label: 'DGBPS Stage-I (GT1+STG1)', sg: [/^DGBPS_1_/], dc: [/^DGBPS_1_/],
-     sldcNames: ['DGB-GT1', 'DGB-STG1'], noDc: 'No DC declared in the GSECL feed (SLDC: GUVNL PPA expired)', units: {dgb1: ['GT1+STG1 · dgb1', null], dgb2: ['GT1+STG1 · dgb2', null]}},
+     sldcNames: ['DGB-GT1', 'DGB-STG1'], noDc: 'No DC declared in the GSECL feed (SLDC: GUVNL PPA expired)', units: {dgb1: ['GT-1', 'DGB-GT1'], dgb2: ['STG-1', 'DGB-STG1']}},
     {key: 'DGBPS_2', rt: ['Dhuvaran (Gas)(I+II)+(III)', 1], label: 'DGBPS Stage-II (GT2+STG2)', sg: [/^DGBPS_2_/], dc: [/^DGBPS_2_/],
-     sldcNames: ['DGB-GT2', 'DGB-STG2'], units: {dgb3: ['GT2+STG2 · dgb3', null], dgb4: ['GT2+STG2 · dgb4', null]}},
+     sldcNames: ['DGB-GT2', 'DGB-STG2'], units: {dgb3: ['GT-2', 'DGB-GT2'], dgb4: ['STG-2', 'DGB-STG2']}},
     {key: 'DGBPS_3', rt: ['Dhuvaran (Gas)(I+II)+(III)', 2], label: 'DGBPS Stage-III (GT3+STG3)', sg: [/^DGBPS_3_/], dc: [/^DGBPS_3_/],
-     sldcNames: ['DGB-GT3', 'DGB-STG3'], units: {dg21: ['GT3+STG3 · dg21', null]}},
+     sldcNames: ['DGB-GT3', 'DGB-STG3'], units: {dg21: ['GT3+STG3', null]}},
   ]},
   {station: 'Utran GBPS', fuel: 'Gas', sldc: /^(UCCGP|UGBPS)/, blocks: [
     {key: 'UGBPS_2', rt: ['Utran(Gas)(II)', 0], label: 'UGBPS Stage-II', sg: [/^UGBPS_2_/], dc: [/^UGBPS_2_/], units: {
@@ -185,6 +186,30 @@ function blockStat(pts) {
 /** A unit counts as generating only above this. Gas units (Dhuvaran, Utran) read a few MW negative when
  *  stopped (auxiliary drawal), which would otherwise show as false generation: anything up to 2 MW is 0. */
 const RUN_MW = 2;
+// A unit is synchronised once it has generated above SYNC_MW for SYNC_MIN minutes: only then is its outage row
+// dropped and the sync alert raised (a few MW while rolling or on trial is not a synchronisation).
+const SYNC_MW = 7, SYNC_MIN = 5;
+const SYNC = {since: {}};
+/** Since when each unit has been above SYNC_MW (at first sight, from the phone's own unit readings). */
+function syncTrack(snap) {
+  if (!snap || !snap.ok) return;
+  const now = Date.now(), fresh = [];
+  for (const s of snap.stations) for (const b of s.blocks) for (const u of b.units) {
+    if ((u.mw ?? 0) > SYNC_MW) { if (!SYNC.since[u.key]) { SYNC.since[u.key] = now; fresh.push(u.key); } }
+    else if (u.mw !== null) delete SYNC.since[u.key];
+  }
+  if (!fresh.length || typeof hasNative !== 'function' || !hasNative('unitHistoryRead')) return;
+  try {
+    const rows = Native.unitHistoryRead(String(now - 30 * 60e3), String(now), fresh.join(',')).split('\n').filter(Boolean).map(l => l.split(','));
+    fresh.forEach((k, i) => {
+      let t = SYNC.since[k];
+      for (let j = rows.length - 1; j >= 0; j--) { const v = rows[j][i + 1]; if (v === '' || v === undefined) continue; if (+v > SYNC_MW) t = +rows[j][0]; else break; }
+      SYNC.since[k] = Math.min(SYNC.since[k], t);
+    });
+  } catch (e) { /* from now on */ }
+}
+const syncMinutes = key => SYNC.since[key] ? (Date.now() - SYNC.since[key]) / 60e3 : 0;
+const unitSynced = u => !!u && (u.mw ?? 0) > SYNC_MW && syncMinutes(u.key) >= SYNC_MIN;
 const runMw = v => v === null || v === undefined || !isFinite(v) ? v : v > RUN_MW ? v : 0;
 const nowText = () => new Date().toLocaleString('en-GB', {hour12: false}).replace(',', '');
 
@@ -259,7 +284,7 @@ function buildSnapshot(p, rt = {}) {
       const units = Object.entries(b.units).map(([key, [label, sldc]]) => {
         const mw = key in p.units ? runMw(p.units[key]) : null;
         if (mw !== null) { usedUnits.add(key); gen = (gen ?? 0) + mw; }
-        return {key, label, sldc, mw, techMin: TECH_MIN[key] ?? null};
+        return {key, label, sldc, mw, fuel: s.fuel, techMin: TECH_MIN[key] ?? null};
       });
       // A block with any unit missing from the feed would under-count; use SLDC's block total instead.
       let genSrc = gen === null ? null : 'units';
@@ -465,17 +490,19 @@ function latestOutages(rows) {
 }
 
 /**
- * Outage rows of units the GSECL feed shows generating now (above RUN_MW) are left out: the unit is already
- * synchronised and SLDC has not yet cleared the row. Returns the rows to show and the ones dropped.
+ * Outage rows of units synchronised now (above SYNC_MW for SYNC_MIN minutes) are left out: SLDC has not yet cleared
+ * the row. A unit generating for less than that keeps its row (shown as synchronising). Returns the rows to show and
+ * the ones dropped.
  */
 function withoutSynced(rows, snap) {
   if (!snap || !snap.ok) return {rows, synced: []};
-  const mw = {};
-  for (const s of snap.stations) for (const b of s.blocks) for (const u of b.units) if (u.sldc) mw[normName(u.sldc)] = u.mw;
+  syncTrack(snap);
+  const unit = {};
+  for (const s of snap.stations) for (const b of s.blocks) for (const u of b.units) if (u.sldc) unit[normName(u.sldc)] = u;
   const keep = [], synced = [];
   for (const r of rows) {
-    const v = mw[normName(r.unit)];
-    if (v !== null && v !== undefined && v > RUN_MW) synced.push({...r, mw: v}); else keep.push(r);
+    const u = unit[normName(r.unit)];
+    if (unitSynced(u)) synced.push({...r, mw: u.mw}); else keep.push(r);
   }
   return {rows: keep, synced};
 }

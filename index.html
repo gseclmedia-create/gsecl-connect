@@ -21,7 +21,7 @@
     --bg: #eef2f8; --card: #ffffff; --ink: #0f1b2d; --muted: #64748b; --line: #e2e8f0; --soft: #f5f8fc;
     --brand: #8e3291; --brand2: #f47b57; --accent: #8e3291;
     --coal: #f97316; --lignite: #b45309; --gas: #06b6d4; --hydro: #3b82f6;
-    --forced: #e11d48; --planned: #d97706; --rsd: #4f46e5; --outage: #475569; --run: #16a34a; --off: #94a3b8;
+    --forced: #e11d48; --planned: #d97706; --rsd: #4f46e5; --outage: #475569; --run: #16a34a; --off: #94a3b8; --sync: #0d9488; --standby: #64748b;
     --pos: #15803d; --neg: #dc2626;
     --shadow: 0 1px 2px rgba(15, 27, 45, .06), 0 4px 14px rgba(15, 27, 45, .06);
   }
@@ -120,10 +120,24 @@
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; color: #fff; letter-spacing: .02em; }
   .b-Forced { background: var(--forced); } .b-Planned { background: var(--planned); } .b-RSD { background: var(--rsd); }
   .b-Outage { background: var(--outage); } .b-Off { background: var(--off); } .b-Running { background: var(--run); }
+  .b-Synchronising { background: var(--sync); } .b-Awaited { background: var(--off); } .b-Standby { background: var(--standby); }
+  .gtile2.syncing { animation: syncpulse 1.6s ease-in-out infinite; } @keyframes syncpulse { 50% { opacity: .55; } }
+  @media (prefers-reduced-motion: reduce) { .gtile2.syncing { animation: none; } }
   .chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 10px; scrollbar-width: none; }
   .chip { flex: none; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 20px; padding: 7px 14px; font: inherit; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; }
   .chip .sw { width: 8px; height: 8px; border-radius: 50%; }
   .chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .gtabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; position: sticky; top: 0; z-index: 5; margin: 0 -2px 12px; padding: 6px 2px;
+    background: var(--bg); }
+  .gtabs::-webkit-scrollbar { display: none; }
+  .ca-q { margin: 10px 0 4px auto; max-width: 88%; width: fit-content; background: var(--accent); color: #fff; border-radius: 14px 14px 4px 14px; padding: 8px 12px; font-size: 13.5px; }
+  .ca-a { background: var(--soft); border: 1px solid var(--line); border-radius: 14px 14px 14px 4px; padding: 10px 12px; font-size: 13.5px; line-height: 1.5; max-width: 96%; }
+  .ca-src { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 12px; align-items: center; color: var(--muted); }
+  .gtabs button { flex: none; min-height: 40px; border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 12px; padding: 8px 14px;
+    font: inherit; font-weight: 700; font-size: 13px; }
+  .gtabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent); }
+  #v-grid [data-gsec][hidden] { display: none !important; }
+  :focus-visible { outline: 2.5px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
   .seg { display: grid; grid-template-columns: repeat(3, 1fr); background: #e2e8f0; border-radius: 12px; padding: 3px; margin-bottom: 10px; }
   .seg button { border: 0; background: none; font: inherit; font-weight: 600; padding: 8px; border-radius: 10px; color: var(--muted); }
   .seg button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
@@ -592,21 +606,22 @@
   <section class="view" id="v-grid">
     <!-- Management summary and tomorrow's load forecast: loadfc.js -->
     <div class="dhero" id="gujHero"><div class="sk" style="height:220px;border-radius:14px"></div></div>
-    <div class="card">
+    <div class="gtabs" role="tablist" aria-label="Gujarat sections" id="gujTabs"><button role="tab" id="gtab-now" data-gtab="now" aria-controls="v-grid" aria-selected="false">Now</button><button role="tab" id="gtab-demand" data-gtab="demand" aria-controls="v-grid" aria-selected="false">Demand & forecast</button><button role="tab" id="gtab-gsecl" data-gtab="gsecl" aria-controls="v-grid" aria-selected="false">GSECL MU</button><button role="tab" id="gtab-trends" data-gtab="trends" aria-controls="v-grid" aria-selected="false">Trends</button><button role="tab" id="gtab-market" data-gtab="market" aria-controls="v-grid" aria-selected="false">Market</button></div>
+    <div class="card" data-gsec="now">
       <h2>Gujarat generation <span class="more muted" id="gujTime" style="font-weight:500;font-size:11.5px"></span></h2>
       <div class="tstats three num" id="gujStats"></div>
       <div class="gstack" id="gujStack"></div>
       <div class="glist" id="gujList"><div class="sk" style="height:90px;grid-column:1/-1"></div></div>
       <div id="discoms"></div>
     </div>
-    <div class="card" id="gujSrc"></div>
-    <div class="card" id="gujOd"></div>
+    <div class="card" data-gsec="now" id="gujSrc"></div>
+    <div class="card" data-gsec="now" id="gujOd"></div>
 
-    <div class="card" id="loadFc"><h2>Tomorrow's load forecast · Gujarat catered</h2><div class="sk" style="height:220px"></div></div>
-    <div class="card" id="loadAcc"><h2>Forecast vs actual · Gujarat catered</h2><div class="sk" style="height:160px"></div></div>
-    <div class="card" id="gujDays"><h2>Gujarat demand · last 14 days</h2><div class="sk" style="height:200px"></div></div>
-    <div class="card" id="gseclSplit"></div>
-    <div class="card">
+    <div class="card" data-gsec="demand" id="loadFc"><h2>Tomorrow's load forecast · Gujarat catered</h2><div class="sk" style="height:220px"></div></div>
+    <div class="card" data-gsec="demand" id="loadAcc"><h2>Forecast vs actual · Gujarat catered</h2><div class="sk" style="height:160px"></div></div>
+    <div class="card" data-gsec="demand" id="gujDays"><h2>Gujarat demand · last 14 days</h2><div class="sk" style="height:200px"></div></div>
+    <div class="card" data-gsec="gsecl" id="gseclSplit"></div>
+    <div class="card" data-gsec="trends">
       <h2>Trends <span class="more muted" id="trendNote" style="font-weight:500;font-size:11.5px"></span></h2>
       <div class="chips" id="trendMetric" style="padding-bottom:6px"><button class="chip on" data-metric="freq">Frequency</button><button class="chip" data-metric="catered">Guj. Catered</button><button class="chip" data-metric="gen">GSECL Gen</button><button class="chip" data-metric="mix">Thermal · Solar</button></div>
       <div class="chips" id="trendBasis" hidden></div>
@@ -623,8 +638,8 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><span class="note-src" id="trendBg" style="margin:0"></span><button class="btn" id="trendExport" style="color:var(--accent)">Export CSV</button></div>
     </div>
 
-    <div class="card" id="reFc"><h2>Solar &amp; wind forecast · net load</h2><div class="sk" style="height:200px"></div></div>
-    <div class="card">
+    <div class="card" data-gsec="demand" id="reFc"><h2>Solar &amp; wind forecast · net load</h2><div class="sk" style="height:200px"></div></div>
+    <div class="card" data-gsec="trends">
       <h2>Compare with another day <span class="more muted" id="cmpNote" style="font-weight:500;font-size:11.5px"></span></h2>
       <select class="search" id="cmpMetric" style="margin:0 0 8px"></select>
       <div class="chips" id="cmpWhen"></div>
@@ -637,7 +652,7 @@
       <div id="cmpKey"></div>
     </div>
 
-    <div class="card">
+    <div class="card" data-gsec="market">
       <h2>IEX price today <span class="more muted" id="iexNote" style="font-weight:500;font-size:11.5px"></span></h2>
       <div class="tstats num" id="iexStats"></div>
       <div class="chart" id="iexChart"><div class="sk" style="height:190px"></div></div>

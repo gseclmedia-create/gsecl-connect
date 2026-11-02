@@ -1,7 +1,12 @@
 const OUTAGE_EVERY = 300, IEX_EVERY = 300;   // seconds; GSECL feed and SLDC data follow the refresh setting (S.set.refresh)
 const SET_DEFAULT_EARLY = {refresh: 60, theme: 'system', palette: 'gsecl', seen: 0};
 const FUEL_COLOR = {Coal: 'var(--coal)', Lignite: 'var(--lignite)', Gas: 'var(--gas)', Hydro: 'var(--hydro)'};
-const TYPE_COLOR = {Forced: 'var(--forced)', Planned: 'var(--planned)', RSD: 'var(--rsd)', Outage: 'var(--outage)'};
+const TYPE_COLOR = {Forced: 'var(--forced)', Planned: 'var(--planned)', RSD: 'var(--rsd)', Outage: 'var(--outage)', Synchronising: 'var(--sync)', Awaited: 'var(--off)', Standby: 'var(--standby)'};
+// Not generating and not on SLDC's outage list: a coal / lignite unit's reason is awaited; gas and hydro units are run
+// on demand, so they are on standby.
+const IDLE_STATE = {Coal: 'Awaited', Lignite: 'Awaited', Gas: 'Standby', Hydro: 'Standby'};
+const STATE_HINT = {Awaited: 'Not generating; outage information awaited from SLDC', Standby: 'Not generating; not on the SLDC outage list (run on demand)',
+  Synchronising: 'Generating; counted as synchronised after ' + SYNC_MIN + ' minutes above ' + SYNC_MW + ' MW'};
 
 const S = {busy: {}, set: {...SET_DEFAULT_EARLY}, gsecl: null, home: null, outages: null, iex: null, merit: null, stale: {}, guj: '', loading: 0, fuel: '', type: '', metric: 'freq', range: 24, basis: 'gen', mix: '', q: '', open: new Set()};
 let tick = 0;
@@ -44,10 +49,14 @@ const csvTime = t => { const d = new Date(t), p = n => String(n).padStart(2, '0'
 const outRows = (kind, key) => S.outages?.ok ? (S.outages.match[kind][key] || []).map(i => S.outages.rows[i]) : [];
 
 function unitState(u) {
-  const o = outRows('units', u.key);
+  const o = outRows('units', u.key), mw = u.mw ?? 0;
+  // generating, but still on the outage list or below SYNC_MW / SYNC_MIN: synchronising
+  if (u.mw !== null && mw > RUN_MW && (o.length || mw <= SYNC_MW)) return {type: 'Synchronising', color: TYPE_COLOR.Synchronising, outs: o};
   if (o.length) return {type: o[0].type, color: TYPE_COLOR[o[0].type], outs: o};
   if (u.mw === null) return {type: null, color: 'var(--line)', outs: []};
-  return u.mw > 0 ? {type: 'Running', color: 'var(--run)', outs: []} : {type: 'Off', color: 'var(--off)', outs: []};
+  if (mw > RUN_MW) return {type: 'Running', color: 'var(--run)', outs: []};
+  const idle = IDLE_STATE[u.fuel] || 'Awaited';
+  return {type: idle, color: TYPE_COLOR[idle], outs: []};
 }
 const outDetail = o => esc([o.since && `Since ${o.since}`, o.revised && `Expected ${o.revised}`, o.reason].filter(Boolean).join(' · '));
 
@@ -347,13 +356,16 @@ function gdTodayHtml() {
   if (A.length < 2) return `<h2>${esc(title)}</h2>${chips}<div class="empty">${isToday ? 'Not enough readings yet today. They are recorded while the app is open and by the background monitor (Profile).' : 'No readings kept for this day.'}</div>`;
   const eA = gdEnergy(A), eB = gdEnergy(B, nowM), {pk, lo} = blockStat(A);   // peak / low by 15-minute block
   const avg = gdAvg(A), hm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
-  const ch = eB ? (eA - eB) / eB * 100 : null;
+  // a finished day: GSECL solar added once entered (compared with the day before only when it has its solar too)
+  const sA = isToday ? null : gsolDay(iso, gdTodayRedraw), sB = isToday ? null : gsolDay(prevIso, gdTodayRedraw);
+  const eAt = eA + (sA ? sA.mu : 0), eBt = eB ? eB + (sA && sB ? sB.mu : 0) : eB;
+  const ch = eB ? (sA && sB ? (eAt - eBt) / eBt : (eA - eB) / eB) * 100 : null;
   const W = 340, H = 120, L = 34, R = 6, Tp = 8, Bt = 18, all = A.concat(B).map(p => p.v), hi = Math.max(...all) * 1.06, lw = Math.min(...all) * 0.94;
   const x = m => L + m / 1440 * (W - L - R), y = v => Tp + (hi - v) / ((hi - lw) || 1) * (H - Tp - Bt);
   const line = l => { let d = '', prev = null; l.forEach(p => { d += (prev !== null && p.m - prev <= 30 ? 'L' : 'M') + x(p.m).toFixed(1) + ',' + y(p.v).toFixed(1); prev = p.m; }); return d; };
   return `<h2>${esc(title)} <span class="more muted" style="font-weight:500;font-size:11.5px">${src.shared ? 'GSECL Connect · ' : 'this device · '}${A.length} readings</span></h2>${chips}
     <div class="tstats" style="grid-template-columns:repeat(4,1fr)">
-      <div><span>Energy</span><b class="num">${fmt(eA, 2)}</b><small>MU till ${hm(A[A.length - 1].m)}</small></div>
+      <div><span>Energy${sA ? ' incl. solar' : ''}</span><b class="num">${fmt(eAt, 2)}</b><small>${sA ? 'MU · solar ' + fmt(sA.mu, 2) : isToday ? 'MU till ' + hm(A[A.length - 1].m) : 'MU · solar not entered'}</small></div>
       <div><span>vs ${isToday ? 'yesterday' : 'day before'}</span><b class="num ${ch === null ? '' : ch >= 0 ? 'pos' : 'neg'}">${ch === null ? '—' : (ch >= 0 ? '+' : '−') + fmt(Math.abs(ch), 1) + '%'}</b><small>${eB ? fmt(eB, 2) + ' MU same time' : 'no data'}</small></div>
       <div><span>Peak (15-min)</span><b class="num">${fmt(pk.v)}</b><small>MW in ${pk.lbl}</small></div>
       <div><span>Average</span><b class="num">${fmt(avg)}</b><small>low ${fmt(lo.v)} in ${lo.lbl}</small></div>
@@ -417,12 +429,14 @@ function gdUnitsHtml(g) {
     const units = s.blocks.flatMap(b => b.units);
     const run = units.filter(u => (u.mw ?? 0) > RUN_MW).length; on += run; all += units.length;
     return `<div class="gub"><div class="h">${esc(s.station)}<span>${run}/${units.length} on bar · ${fmt(s.totals.gen)} MW</span></div><div class="gtiles">${units.map(u => {
-      const st = unitState(u), running = (u.mw ?? 0) > RUN_MW, colour = st.type === 'Running' ? FUEL_COLOR[s.fuel] : st.type && st.type !== 'Off' ? TYPE_COLOR[st.type] : null;
-      return `<div class="gtile2 ${colour ? '' : 'off'}" style="${colour ? '--c:' + colour : ''}" title="${esc(u.label)}"><b class="num">${running ? fmt(u.mw) : st.type && st.type !== 'Running' && st.type !== 'Off' ? esc(st.type) : '0'}</b>${esc(u.label.replace(/^Unit /, 'U-').replace(/ · .*$/, ''))}</div>`;
+      const st = unitState(u), running = (u.mw ?? 0) > RUN_MW, idle = st.type === 'Awaited' || st.type === 'Standby';
+      const colour = st.type === 'Running' ? FUEL_COLOR[s.fuel] : st.type && !idle ? TYPE_COLOR[st.type] : null;
+      const tip = u.label + (st.type ? ' · ' + (STATE_HINT[st.type] || st.type) : '') + (st.outs[0] ? ' · ' + [st.outs[0].since && 'since ' + st.outs[0].since, st.outs[0].revised && 'expected ' + st.outs[0].revised].filter(Boolean).join(', ') : '');
+      return `<div class="gtile2 ${colour ? '' : 'off'} ${st.type === 'Synchronising' ? 'syncing' : ''}" style="${colour ? '--c:' + colour : ''}" title="${esc(tip)}" aria-label="${esc(tip)}"><b class="num">${running ? fmt(u.mw) : st.type ? esc(st.type) : '—'}</b>${esc(u.label.replace(/^Unit /, 'U-'))}</div>`;
     }).join('')}</div></div>`;
   }).join('');
   $('gdUnitsNote').textContent = `${on} of ${all} units on bar`;
-  return h + `<div class="keyline"><span><i style="width:12px;height:10px;border-radius:3px;background:var(--coal)"></i>Running (fuel colour, MW)</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--forced)"></i>Forced</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--planned)"></i>Planned</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--rsd)"></i>RSD</span><span><i style="width:12px;height:10px;border-radius:3px;border:1px dashed var(--muted)"></i>Off</span></div>`;
+  return h + `<div class="keyline"><span><i style="width:12px;height:10px;border-radius:3px;background:var(--coal)"></i>Running (fuel colour, MW)</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--forced)"></i>Forced</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--planned)"></i>Planned</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--rsd)"></i>RSD</span><span><i style="width:12px;height:10px;border-radius:3px;background:var(--sync)"></i>Synchronising (&lt; ${SYNC_MIN} min above ${SYNC_MW} MW)</span><span><i style="width:12px;height:10px;border-radius:3px;border:1px dashed var(--muted)"></i>Awaited (coal / lignite: outage information awaited) · Standby (gas / hydro)</span></div>`;
 }
 
 function gdGridHtml(g) {
@@ -623,7 +637,7 @@ function renderOutages() {
   for (const [k, ix] of Object.entries(o.match.units)) for (const i of ix) unitFor[i] = k;
 
   const notes = [];
-  if (o.synced?.length) notes.push(`Not shown, generating now: ${o.synced.map(r => `<b>${esc(r.unit)}</b> ${fmt(r.mw)} MW`).join(', ')} (SLDC still lists ${o.synced.length === 1 ? 'it' : 'them'}).`);
+  if (o.synced?.length) notes.push(`Not shown, synchronised (above ${SYNC_MW} MW for ${SYNC_MIN} minutes): ${o.synced.map(r => `<b>${esc(r.unit)}</b> ${fmt(r.mw)} MW`).join(', ')} (SLDC still lists ${o.synced.length === 1 ? 'it' : 'them'}).`);
   if (o.duplicates) notes.push(`SLDC lists ${o.duplicates} older row${o.duplicates === 1 ? '' : 's'} for units listed again; only each unit's latest outage is shown.`);
   $('outList').innerHTML = (notes.length ? `<div class="note-src" style="margin:0 4px 10px">${notes.join(' ')}</div>` : '') + (rows.length ? rows.map(r => `<div class="oq" style="--oc:${TYPE_COLOR[r.type]}">
       <div class="oq-h"><span class="nm">${esc(r.unit)}</span>${badge(r.type)}<span class="cap num">${esc(r.cap || '—')}<small> MW</small></span></div>
@@ -1688,6 +1702,20 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What changed in this version (shown in Profile › About); the newest first. */
 const RELEASE_NOTES = [
+  ['3.17.0', '2 Nov 2026', [
+    'Circulars: ask the AI assistant (Connect › Circulars) — LTC, leave, allowances … answered from the circulars for your designation and class, with the circulars it used',
+    'Units: a unit counts as synchronised only after 5 minutes above 7 MW (sync alert and outage list); until then it shows Synchronising',
+    'Unit status: a unit not generating and not on SLDC’s outage list shows Awaited (coal / lignite: outage information awaited) or Standby (gas / hydro) instead of Off',
+    'Dhuvaran: GT-1, STG-1, GT-2 and STG-2 shown and matched to SLDC separately (was “GT1+STG1” twice); Kutch Lignite Units 1 and 2 removed (decommissioned)',
+    'Gujarat page in sections (Now, Demand & forecast, GSECL MU, Trends, Market); visible keyboard focus throughout',
+  ]],
+  ['3.16.8', '2 Nov 2026', [
+    'Built so that phone security scanners do not mistake the app for malware (readable code names, all signature schemes); no change in what the app does',
+    'Security: attacks (request floods, password guessing across accounts, forged sign-ins, probing, bulk copying of records) are stopped at once — the device is blocked or the account signed out and locked — and the super administrators, administrators and the employee concerned are alerted in the app and by e-mail; administrators’ phones check for alerts every 15 minutes',
+  ]],
+  ['3.16.7', '29 Oct 2026', [
+    'GSECL totals include GSECL solar once the sites have entered it (SLDC’s GSECL figures are thermal, gas and hydro): the energy of a past day on the Dashboard, the day total and the 30-day table on Gujarat › GSECL MU (with a Solar MU column), and the daily management report (generation, share of Gujarat, fuel and station tables, 30-day chart)',
+  ]],
   ['3.16.6', '29 Oct 2026', [
     'Sign-in: an employee who has not registered yet goes straight to “Register / first sign-in” with the code already e-mailed, whatever is typed as password — no more locked accounts from trying another system’s password',
     'A wrong password now says how many tries are left and that “Forgot password?” opens a locked account at once',

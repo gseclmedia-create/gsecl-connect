@@ -85,7 +85,7 @@ function gtSplitDayHtml(days, head) {
   if (!d || !d.g) return head + `<div class="empty">No GSECL readings by block for ${esc(dpLabel(iso))}.</div>`;
   const H1 = gtHours(d.g), H0 = p && p.g ? gtHours(p.g) : null;
   const part = (a, b) => { const l = H1.slice(a, b).filter(x => x.n); return {mu: l.reduce((t, x) => t + x.mu, 0), avg: l.length ? l.reduce((t, x) => t + x.mw, 0) / l.length : null, max: l.length ? Math.max(...l.map(x => x.mw)) : null, n: l.length}; };
-  const A = part(0, 17), E = part(17, 24), today = iso === dpToday(), ramp = A.avg !== null && E.avg !== null ? E.avg - A.avg : null;
+  const A = part(0, 17), E = part(17, 24), today = iso === dpToday(), ramp = A.avg !== null && E.avg !== null ? E.avg - A.avg : null, sol = today ? null : gsolDay(iso, gtRender);
   const W = 340, Hh = 190, L = 38, R = 8, T = 10, Bt = 22, bw = (W - L - R) / 24;
   const vals = H1.concat(H0 || []).filter(x => x.n).map(x => x.mw), hi = Math.max(...vals) * 1.08, lo = Math.max(0, Math.min(...vals) * 0.8);
   const y = v => T + (hi - v) / ((hi - lo) || 1) * (Hh - T - Bt), x = h => L + h * bw;
@@ -103,7 +103,7 @@ function gtSplitDayHtml(days, head) {
       <div><span>00–17 h</span><b class="num">${fmt(A.mu, 2)}</b><small>MU · avg ${fmt(A.avg)} MW${today && A.n < 17 ? ' · so far' : ''}</small></div>
       <div><span>17–24 h</span><b class="num">${E.n ? fmt(E.mu, 2) : '—'}</b><small>MU · avg ${fmt(E.avg)} MW${today && E.n && E.n < 7 ? ' · so far' : ''}</small></div>
       <div><span>Ramp-up</span><b class="num ${ramp === null ? '' : ramp >= 0 ? 'pos' : 'neg'}">${ramp === null ? '—' : (ramp >= 0 ? '+' : '−') + fmt(Math.abs(ramp))}</b><small>MW evening avg − day avg</small></div>
-      <div><span>Day</span><b class="num">${fmt(A.mu + E.mu, 2)}</b><small>MU · peak hour ${fmt(Math.max(E.max || 0, A.max || 0))} MW</small></div></div>
+      <div><span>Day${sol ? ' incl. solar' : ''}</span><b class="num">${fmt(A.mu + E.mu + (sol ? sol.mu : 0), 2)}</b><small>MU${sol ? ' · solar ' + fmt(sol.mu, 2) : today ? '' : ' · solar not entered'} · peak hour ${fmt(Math.max(E.max || 0, A.max || 0))} MW</small></div></div>
     <div class="chart"><svg viewBox="0 0 ${W} ${Hh}" height="${Hh}" role="img" aria-label="GSECL generation hour by hour">
       ${niceTicks(lo, hi, 4).map(v => `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L - 4}" y="${y(v) + 3.5}" text-anchor="end">${fmt(v)}</text>`).join('')}
       <line x1="${x(17)}" x2="${x(17)}" y1="${T}" y2="${Hh - Bt}" stroke="#f59e0b" stroke-dasharray="3 3" opacity=".8"/>
@@ -143,10 +143,10 @@ function gtSplitHtml() {
       ${list.map((d, i) => i % every && i !== n - 1 ? '' : `<text class="ax" x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${gtDm(d.date)}</text>`).join('')}
     </svg></div>
     <div class="keyline"><span><i style="width:16px;height:3px;background:var(--accent)"></i>00:00–17:00 MU</span><span><i style="width:16px;height:3px;background:#f59e0b"></i>17:00–24:00 MU (peak period)</span></div>
-    <div style="overflow-x:auto;margin-top:8px"><table class="dt num"><tr><th>Date</th><th>00–17 MU</th><th>avg MW</th><th>17–24 MU</th><th>avg MW</th><th>max MW</th><th>Ramp-up MW</th></tr>
-      ${[...list].reverse().slice(0, 10).map(d => `<tr><td>${gtDm(d.date)}${d.date === today ? ' <small>(so far)</small>' : ''}</td><td>${fmt(d.day.mu, 2)}</td><td>${fmt(d.day.avg)}</td><td>${fmt(d.eve.mu, 2)}</td><td>${fmt(d.eve.avg)}</td><td>${fmt(d.eve.max)}</td><td class="${ramp(d) >= 0 ? 'pos' : 'neg'}">${ramp(d) === null ? '—' : (ramp(d) >= 0 ? '+' : '−') + fmt(Math.abs(ramp(d)))}</td></tr>`).join('')}</table></div>
-    <div class="note-src">GSECL generation (SLDC) by 15-minute block. 00–17 h is 17 hours and 17–24 h is 7 hours, so compare the average MW: ramp-up = evening average − day average.</div>
-    ${csvBtn('gseclSplit', 'GSECL_MU_day_evening', ['Date', 'MU 00-17', 'Avg MW 00-17', 'MU 17-24', 'Avg MW 17-24', 'Max MW 17-24', 'Ramp-up MW'], list.map(d => [d.date, +d.day.mu.toFixed(3), d.day.avg === null ? null : Math.round(d.day.avg), +d.eve.mu.toFixed(3), d.eve.avg === null ? null : Math.round(d.eve.avg), d.eve.max, ramp(d) === null ? null : Math.round(ramp(d))]))}`;
+    <div style="overflow-x:auto;margin-top:8px"><table class="dt num"><tr><th>Date</th><th>00–17 MU</th><th>avg MW</th><th>17–24 MU</th><th>avg MW</th><th>max MW</th><th>Ramp-up MW</th><th>Solar MU</th><th>Day MU incl. solar</th></tr>
+      ${[...list].reverse().slice(0, 10).map(d => `<tr><td>${gtDm(d.date)}${d.date === today ? ' <small>(so far)</small>' : ''}</td><td>${fmt(d.day.mu, 2)}</td><td>${fmt(d.day.avg)}</td><td>${fmt(d.eve.mu, 2)}</td><td>${fmt(d.eve.avg)}</td><td>${fmt(d.eve.max)}</td><td class="${ramp(d) >= 0 ? 'pos' : 'neg'}">${ramp(d) === null ? '—' : (ramp(d) >= 0 ? '+' : '−') + fmt(Math.abs(ramp(d)))}</td>${(s => `<td>${s ? fmt(s.mu, 2) : '—'}</td><td>${d.date === today ? '—' : `<b>${fmt(d.day.mu + d.eve.mu + (s ? s.mu : 0), 2)}</b>`}</td>`)(gsolDay(d.date, gtRender))}</tr>`).join('')}</table></div>
+    <div class="note-src">GSECL generation (SLDC: thermal, gas, hydro) by 15-minute block; the day total adds GSECL solar once the sites have entered it. 00–17 h is 17 hours and 17–24 h is 7 hours, so compare the average MW: ramp-up = evening average − day average.</div>
+    ${csvBtn('gseclSplit', 'GSECL_MU_day_evening', ['Date', 'MU 00-17', 'Avg MW 00-17', 'MU 17-24', 'Avg MW 17-24', 'Max MW 17-24', 'Ramp-up MW', 'Solar MU', 'Day MU incl. solar'], list.map(d => [d.date, +d.day.mu.toFixed(3), d.day.avg === null ? null : Math.round(d.day.avg), +d.eve.mu.toFixed(3), d.eve.avg === null ? null : Math.round(d.eve.avg), d.eve.max, ramp(d) === null ? null : Math.round(ramp(d)), ...(x => [x ? x.mu : null, d.date === today ? null : +(d.day.mu + d.eve.mu + (x ? x.mu : 0)).toFixed(3)])(gsolDay(d.date))]))}`;
 }
 
 function gtRender() {
@@ -160,3 +160,26 @@ dpOn('od', gtRender);
 dpOn('gsplit', () => { GT.split = 'day'; gtRender(); }, iso => !!(typeof LF !== 'undefined' && LF.data && LF.data.days && LF.data.days.some(d => d.date === iso && d.g)));
 // readings: refresh with the shared log every 3 minutes while the Gujarat tab is open (only with auto-refresh on)
 setInterval(() => { if (typeof appAuto === 'function' && !appAuto()) return; if ($('v-grid') && $('v-grid').classList.contains('on') && document.visibilityState === 'visible' && typeof gdSharedLoad === 'function') gdSharedLoad().then(gtRender); }, 3 * 60e3);
+
+// ---------------------------------------------------------------- Gujarat page sections (tabs)
+// The page has many cards; they are grouped in sections and one section is shown at a time (the summary on top
+// stays). The choice is remembered; arrow keys move between the tabs (WAI-ARIA tab pattern).
+const GTAB = {key: 'now'};
+try { GTAB.key = localStorage.getItem('gujTab') || 'now'; } catch (e) { /* default */ }
+function gtabShow(key, focus) {
+  const bar = document.getElementById('gujTabs'); if (!bar) return;
+  if (!bar.querySelector(`[data-gtab="${key}"]`)) key = 'now';
+  GTAB.key = key;
+  try { localStorage.setItem('gujTab', key); } catch (e) { /* not kept */ }
+  bar.querySelectorAll('[data-gtab]').forEach(b => { const on = b.dataset.gtab === key; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; if (on && focus) b.focus(); });
+  document.querySelectorAll('#v-grid [data-gsec]').forEach(c => { c.hidden = c.dataset.gsec !== key; });
+  const btn = bar.querySelector(`[data-gtab="${key}"]`); if (btn && btn.scrollIntoView) btn.scrollIntoView({block: 'nearest', inline: 'nearest'});
+}
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-gtab]'); if (b) gtabShow(b.dataset.gtab); });
+document.addEventListener('keydown', e => {
+  const b = e.target.closest && e.target.closest('[data-gtab]'); if (!b) return;
+  const all = [...document.querySelectorAll('#gujTabs [data-gtab]')], i = all.indexOf(b);
+  const to = e.key === 'ArrowRight' ? all[(i + 1) % all.length] : e.key === 'ArrowLeft' ? all[(i - 1 + all.length) % all.length] : e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1] : null;
+  if (to) { e.preventDefault(); gtabShow(to.dataset.gtab, true); }
+});
+gtabShow(GTAB.key);

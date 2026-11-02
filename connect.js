@@ -289,9 +289,48 @@ function conListTail(L, kind) {
   return conErr(L.error) + (L.busy ? conSpin() : L.more ? `<div style="text-align:center">${conBtn('Load more', 'more', kind)}</div>` : '');
 }
 
+// ---------------------------------------------------------------- circulars assistant (circ_ask on the service)
+// Questions about the circulars (LTC, leave, allowances …) answered by AI from the circulars' own text, for the
+// employee's designation and class, with the circulars it used. The last two exchanges go with a follow-up question.
+const CA = {q: '', busy: false, hist: [], err: '', state: null, reading: false, note: ''};
+function conCircAsk() {
+  if (!CA.state && !CA.stateBusy && hasConnect()) { CA.stateBusy = true; conCall('circ_ai', {}).then(r => { CA.stateBusy = false; if (r.ok) { CA.state = r.data; if (C.tab === 'circ' && !C.detail) conRender(); } }); }
+  const st = CA.state, para = t => esc(t).replace(/\n/g, '<br>');
+  const turns = CA.hist.map(h => `<div class="ca-q">${esc(h.q)}</div><div class="ca-a" role="article">${para(h.a)}
+      ${h.sources && h.sources.length ? `<div class="ca-src">From: ${h.sources.map(s => s.id ? `<button class="chip" data-cact="circular" data-carg="${s.id}" style="padding:3px 10px;font-size:12px">📄 ${esc([s.no, s.title].filter(Boolean).join(' · ').slice(0, 60))}</button>` : `<span class="chip" style="padding:3px 10px;font-size:12px">📄 ${esc(s.title.slice(0, 60))}</span>`).join('')}</div>` : ''}</div>`).join('');
+  return `<div class="card ca"><h2>🤖 Ask about circulars <span class="more muted" style="font-weight:500;font-size:11.5px">AI · answers from the circulars</span></h2>
+    ${turns}
+    ${CA.busy ? '<div class="ca-a"><span class="muted">Reading the circulars…</span></div>' : ''}
+    ${CA.err ? conErr(CA.err) : ''}
+    <label for="conAskQ" class="muted" style="font-size:12px;display:block;margin-top:${CA.hist.length ? 10 : 0}px">${CA.hist.length ? 'Ask a follow-up, or a new question' : 'Your question'}</label>
+    <textarea class="search" id="conAskQ" rows="2" maxlength="600" placeholder="e.g. What is my LTC entitlement? · Leave encashment for Class III · Uniform allowance rate" style="margin:4px 0 8px;resize:vertical">${esc(CA.q)}</textarea>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${conBtn(CA.busy ? 'Asking…' : 'Ask', 'circask', '', true)}${CA.hist.length ? conBtn('New conversation', 'circnew') : ''}
+      ${st && st.admin ? conBtn(CA.reading ? 'Reading circulars…' : 'Read circulars now', 'circread') : ''}</div>
+    <div class="note-src" style="margin-top:8px">Answers are written by AI (Claude) from the circulars${st ? ` (${st.read} read so far)` : ''} for your designation and class, and can be wrong: check the circular named before acting on it. Your question goes to Anthropic, the AI provider.${CA.note ? ' ' + esc(CA.note) : ''}</div></div>`;
+}
+async function conCircAskGo() {
+  const q = String(CA.q || '').trim();
+  if (CA.busy || q.length < 3) { if (q.length < 3) { CA.err = 'Type your question about the circulars.'; conRender(); } return; }
+  CA.busy = true; CA.err = ''; conRender();
+  const r = await conCall('circ_ask', {q, history: CA.hist.slice(-2).map(h => ({q: h.q, a: h.a}))});
+  CA.busy = false;
+  if (r.ok) { CA.hist.push({q, a: r.data.answer, sources: r.data.sources || []}); CA.q = ''; CA.note = r.data.remaining !== undefined ? r.data.remaining + ' questions left today.' : ''; }
+  else CA.err = /unknown action/i.test(r.error || '') ? 'The circulars assistant comes with the updated GSECL Connect script.' : r.error;
+  conRender();
+  const a = document.querySelectorAll('.ca-a'); if (a.length) a[a.length - 1].scrollIntoView({block: 'nearest', behavior: 'smooth'});
+}
+async function conCircRead() {
+  if (CA.reading) return;
+  CA.reading = true; CA.err = ''; conRender();
+  const r = await conCall('circ_ai', {read: true, limit: 8});
+  CA.reading = false;
+  if (r.ok) { CA.state = r.data; CA.note = r.data.ran ? r.data.ran.message + (r.data.ran.read >= 8 ? ' More remain: tap again.' : '') : ''; } else CA.err = r.error;
+  conRender();
+}
+
 function conTabCirc() {
   const L = C.circ;
-  return `<input class="search" id="conCircQ" type="search" placeholder="Search circulars… (press Enter)" value="${esc(L.q)}" autocomplete="off">
+  return conCircAsk() + `<input class="search" id="conCircQ" type="search" placeholder="Search circulars… (press Enter)" value="${esc(L.q)}" autocomplete="off">
     <div class="chips">${[['', 'All']].concat(CON_CATEGORIES.map(c => [c, c])).map(([v, l]) => `<button class="chip ${L.cat === v ? 'on' : ''}" data-cact="cat" data-carg="${esc(v)}">${esc(l)}</button>`).join('')}</div>
     ${L.items && !L.items.length && !L.busy && !L.error ? `<div class="card">${conEmpty('No circulars found.')}</div>` : (L.items || []).map(conCircRow).join('')}${conListTail(L, 'circ')}`;
 }
@@ -450,6 +489,9 @@ document.addEventListener('click', async e => {
     case 'cat': C.circ.cat = arg; return conLoadList('circ', true);
     case 'more': return conLoadList(arg, false);
     case 'dirmore': return conDirAppend();
+    case 'circask': return conCircAskGo();
+    case 'circnew': CA.hist = []; CA.q = ''; CA.err = ''; CA.note = ''; return conRender();
+    case 'circread': return conCircRead();
     case 'syncdir': C.busy++; conRender(); await conLoadDirectory(true); C.busy--; return conRender();
     case 'dial': e.stopPropagation(); return Connect.dial(arg);
     case 'sms': return Connect.sms(arg);
@@ -484,6 +526,7 @@ document.addEventListener('click', async e => {
 document.addEventListener('input', e => {
   // Typing in the directory search redraws only the list, so the keyboard stays up.
   if (e.target.id === 'conQ') { C.q = e.target.value; $('conDirList').innerHTML = conDirList(); }
+  if (e.target.id === 'conAskQ') CA.q = e.target.value;
 });
 document.addEventListener('change', e => {
   const sel = e.target.dataset?.csel;
