@@ -83,6 +83,12 @@ function conDate(s, withTime = false) {
 }
 const conAvatar = (e, size = 40) => `<span style="width:${size}px;height:${size}px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:700;font-size:${Math.round(size * 0.38)}px;color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand2));overflow:hidden">${
   e.photo_id && C.photos[e.photo_id] ? `<img src="${C.photos[e.photo_id]}" style="width:100%;height:100%;object-fit:cover" alt="">` : esc(conInitials(e.full_name))}</span>`;
+/** The photo with a status dot: green when the employee's app access is active, grey when it is not. */
+const conAvatarDot = (e, size = 40) => {
+  const d = Math.max(10, Math.round(size * 0.28)), on = !e.app_blocked;
+  return `<span style="position:relative;flex:none;display:inline-block">${conAvatar(e, size)}<i title="${on ? 'Active' : 'Inactive'}" aria-label="${on ? 'Active' : 'Inactive'}"
+    style="position:absolute;right:0;bottom:0;width:${d}px;height:${d}px;border-radius:50%;background:${on ? '#22c55e' : '#9ca3af'};border:2px solid var(--card,#fff)"></i></span>`;
+};
 const conMore = t => `<span class="more muted" style="font-weight:500;font-size:11.5px">${esc(t)}</span>`;
 const conBack = label => `<div class="chips"><button class="chip" data-cact="back">‹ ${esc(label)}</button></div>`;
 const conBtn = (label, act, arg = '', primary = false) => `<button class="btn" data-cact="${act}" data-carg="${esc(arg)}" style="${primary ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : 'color:var(--accent)'}">${esc(label)}</button>`;
@@ -173,10 +179,9 @@ const conBirthdays = key => (C.dir?.employees || []).filter(e => e.birthday === 
 const conBloodOf = e => String(e.blood_group || '').toUpperCase().replace(/\s|VE$/g, '').replace(/POSITIVE$/, '+').replace(/NEGATIVE$/, '-');
 /** "O+", "b-", "AB+ve" typed in the search box: a blood group, matched exactly (not as text). */
 const conBloodWord = w => { const b = w.toUpperCase().replace(/VE$/, ''); return CON_BLOOD.includes(b) ? b : null; };
-const conEmpRow = e => `<div class="srow" data-cact="emp" data-carg="${esc(e.emp_no)}"><div style="display:flex;align-items:center;gap:10px">${conAvatar(e)}
+const conEmpRow = e => `<div class="srow" data-cact="emp" data-carg="${esc(e.emp_no)}"><div style="display:flex;align-items:center;gap:10px">${conAvatarDot(e)}
   <div style="min-width:0;flex:1"><div class="nm" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(conName(e.full_name))}</div>
   <div class="vals" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc([e.designation, e.station_short || e.station].filter(Boolean).join(' · '))}</div></div>
-  ${e.app_blocked ? '<span class="badge" style="flex:none;background:#fee2e2;color:#991b1b">App access blocked</span>' : ''}
   ${C.showBlood && conBloodOf(e) ? `<span class="badge b-Forced" style="flex:none">${esc(conBloodOf(e))}</span>` : ''}
   ${e.mobile ? `<button class="refresh" data-cact="dial" data-carg="${esc(e.mobile)}" aria-label="Call" style="background:var(--soft);color:var(--accent)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.300-1.300a2 2 0 0 1 2.100-.400c.900.300 1.800.600 2.800.700a2 2 0 0 1 1.700 2z"/></svg></button>` : ''}</div></div>`;
 
@@ -358,11 +363,11 @@ function conDetailEmp(id) {
   if (!e) return conBack('Directory') + (C.itemError ? conErr(C.itemError) : conSpin());
   const name = conName(e.full_name);
   const act = (label, a, arg) => arg ? conBtn(label, a, arg) : '';
-  return conBack('Directory') + `<div class="card"><div style="display:flex;align-items:center;gap:14px">${conAvatar(e, 72)}
+  return conBack('Directory') + `<div class="card"><div style="display:flex;align-items:center;gap:14px">${conAvatarDot(e, 72)}
       <div style="min-width:0"><div style="font-size:18px;font-weight:700">${esc(name)}</div>
       <div class="muted" style="font-size:13px">${esc(e.designation || '')}</div>
       <div class="muted" style="font-size:12.5px">Employee no. ${esc(e.emp_no)}${e.class ? ' · Class ' + esc(e.class) : ''}</div></div></div>
-    ${e.app_blocked ? '<div class="alert err" style="margin:12px 0 0"><span>⛔</span><span>App access blocked: this employee cannot sign in to GSECL Connect. Contact details are kept in the directory.</span></div>' : ''}
+    <div class="muted" style="font-size:12.5px;margin-top:10px;display:flex;align-items:center;gap:6px"><i style="width:9px;height:9px;border-radius:50%;background:${e.app_blocked ? '#9ca3af' : '#22c55e'}"></i>${e.app_blocked ? 'Inactive in GSECL Connect' : 'Active in GSECL Connect'}</div>
     <div class="oq" style="box-shadow:none;padding:0;margin:14px 0 0;border:0"><div class="meta num">
       ${conField('Station', esc(e.station || e.station_short || ''))}${conField('Department', esc(e.department || ''))}
       ${conField('Mobile', esc(e.mobile || ''))}${conField('Office phone', esc([e.office_phone, e.extension && 'Ext ' + e.extension].filter(Boolean).join(' · ')))}

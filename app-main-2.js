@@ -1712,195 +1712,99 @@ $('refRange').addEventListener('input', e => { S.set.refresh = +e.target.value; 
 $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) Native.changePassword(); });
 // ================================================================ version, what's new, app updates
 
-/** What changed in this version (shown in Profile › About); the newest first. */
+/** What's new in each version (Profile › About): interface and feature changes users notice, the newest first. */
 const RELEASE_NOTES = [
-  ['3.17.1', '2 Nov 2026', [
-    'Circulars assistant on Google Gemini; circulars are read automatically (published in the app or put in the Drive folder), no button to press',
+  ['3.17.5', '4 Nov 2026', [
+    'People and birthdays: a green dot for active employees, a grey dot for those whose app access is off',
+    'App update: “Update now” downloads the new version directly in the browser',
+    'DSM: SLDC weekly account of week 11 (2026-27) now downloaded and shown',
   ]],
   ['3.17.0', '2 Nov 2026', [
-    'Circulars: ask the AI assistant (Connect › Circulars) — LTC, leave, allowances … answered from the circulars for your designation and class, with the circulars it used',
-    'Units: the sync alert comes once a unit has generated above 10 MW for 5 minutes (also when its outage row is dropped)',
-    'Unit status: a coal / lignite unit not generating and not on SLDC’s outage list shows Awaited (outage information awaited); gas units Standby; Ukai and Kadana hydro Off (run with irrigation water)',
-    'Kutch Lignite Units 1 and 2 (decommissioned) also left out of Stations & units, boiler certificates and AOH planning',
-    'Dhuvaran: GT-1, STG-1, GT-2 and STG-2 shown and matched to SLDC separately (was “GT1+STG1” twice); Kutch Lignite Units 1 and 2 removed (decommissioned)',
-    'Gujarat page in sections (Now, Demand & forecast, GSECL MU, Trends, Market); visible keyboard focus throughout',
-    'Schedule and DC on the Dashboard and Stations from the SLDC scheduling API, block-wise (the GSECL feed only where SLDC has no figure, marked); PAF / PLF only from SLDC’s DC and schedule',
+    'Circulars: ask the AI assistant about LTC, leave, allowances and more; answers follow your designation and class, with the circulars used',
+    'Unit status shows Running, Awaited, Standby or Off instead of a blank “Off”',
+    'Sync alert only for a unit that newly comes on bar (above 10 MW for 5 minutes)',
+    'Dhuvaran GT-1, STG-1, GT-2 and STG-2 shown separately; Kutch Lignite Units 1 and 2 removed (decommissioned)',
+    'Gujarat page arranged in tabs: Now, Demand & forecast, GSECL MU, Trends, Market',
     'Coal › Today’s activity: previous-day balance, received, released and inside now for each station',
   ]],
-  ['3.16.8', '2 Nov 2026', [
-    'Built so that phone security scanners do not mistake the app for malware (readable code names, all signature schemes); no change in what the app does',
-    'Security: attacks (request floods, password guessing across accounts, forged sign-ins, probing, bulk copying of records) are stopped at once — the device is blocked or the account signed out and locked — and the super administrators, administrators and the employee concerned are alerted in the app and by e-mail; administrators’ phones check for alerts every 15 minutes',
-  ]],
   ['3.16.7', '29 Oct 2026', [
-    'GSECL totals include GSECL solar once the sites have entered it (SLDC’s GSECL figures are thermal, gas and hydro): the energy of a past day on the Dashboard, the day total and the 30-day table on Gujarat › GSECL MU (with a Solar MU column), and the daily management report (generation, share of Gujarat, fuel and station tables, 30-day chart)',
+    'GSECL totals include GSECL solar on the Dashboard, Gujarat › GSECL MU and the daily report',
   ]],
   ['3.16.6', '29 Oct 2026', [
-    'Sign-in: an employee who has not registered yet goes straight to “Register / first sign-in” with the code already e-mailed, whatever is typed as password — no more locked accounts from trying another system’s password',
-    'A wrong password now says how many tries are left and that “Forgot password?” opens a locked account at once',
+    'First sign-in goes straight to the e-mailed code screen; a wrong password shows how many tries are left',
   ]],
   ['3.16.5', '28 Oct 2026', [
-    'Connect › People: every employee of the list is shown (more load as you scroll, no longer the first 80 only); those whose app access is off are marked “App access blocked”',
-    'WTPS Unit 8 › Performance & losses: unit and turbine heat rate against design at the load, boiler efficiency by the loss method, condenser (CW flow and TTD), HP heaters, the controllable losses ranked in kcal/kWh, coal t/day and ₹ lakh/day with what to check, and health checks (bearings, steam chemistry, emissions); design values and coal analysis set by administrators',
+    'Connect › People: the full employee list, loading more as you scroll',
+    'WTPS Unit 8 › Performance & losses: heat rate, boiler efficiency, condenser and the biggest losses with what to check',
   ]],
   ['3.16.4', '28 Oct 2026', [
-    'Connect › People: an employee whose app access is blocked stays in the directory with an “App access blocked” mark (contact details kept; not offered for new chats)',
-    'Connect › More › WTPS Unit 8: live plant parameters of Wanakbori Unit 8 (800 MW) — load gauge, 20 KPIs with 24 h sparklines and trends (6 h to 30 days), every parameter grouped by plant area (boiler, turbine, bearings, generator, SWAS, mills, condenser & feed water, flue gas …), read every 15 s while open; access on request, approved by the super administrator',
-  ]],
-  ['3.16.3', '28 Oct 2026', [
-    'Daily dashboard import: R’NESDA I and II no longer mixed up; clearer message (same / different / skipped)',
+    'New page Connect › More › WTPS Unit 8: live parameters, KPI gauges and trends grouped by boiler, turbine, generator, SWAS, mills and more (access on request)',
   ]],
   ['3.16.2', '28 Oct 2026', [
-    'Chat: a message appears at once and is sent in the background (🕓 while on its way, ✓ sent, blue ✓✓ read; a message that could not go shows “tap to try again”); the keyboard stays open and the screen no longer redraws while you type; new messages every 1.5–3 s in an open chat; WhatsApp-style look',
-    'Generation › Solar: import the GSECL daily generation dashboard (PDF) — solar MU and peak of every site, hydro generation, coal and lignite receipt, consumption and stock of the day are read, shown and saved (missing figures filled in; solar sites not yet listed are added for administrators)',
-    'Daily management report: redesigned with charts — the day against the previous day, energy by fuel, 30-day trends of GSECL energy, Gujarat demand and GSECL share, PAF and PLF, DSM, coal stock, PAF against target and fixed cost not recovered']],
-  ['3.16.1', '28 Oct 2026', [
-    'DSM › Estimate: the schedule now includes the bilateral and power exchange sales of a unit (SLDC sends them apart from the GUVNL schedule); stations selling on the exchange (e.g. WTPS 8, Sikka) no longer show false over-injection, so days were wrongly receivable',
-    'DSM › SLDC weekly reports: fetching no longer stops with “UNIQUE constraint failed: notices.url” when SLDC lists one report under two weeks']],
+    'Chat: messages appear at once with sent / read ticks, WhatsApp-style look',
+    'Generation › Solar: import the GSECL daily dashboard PDF (solar, hydro and coal figures)',
+    'Daily management report redesigned with charts',
+  ]],
   ['3.16.0', '28 Oct 2026', [
-    'Auto-refresh is off by default: the data is read when the app is opened (also when it comes back to the front) and when you tap Refresh; switch it on in Profile › Settings',
-    'Background data: nothing is read while the app is closed unless you allow it (asked once at the start; Profile › Background data). Needed for notifications and the background trends',
-    'Every trend: Today, Yesterday or 📅 any day from a calendar where the days with readings are marked; older days come from the month history files of GSECL Connect',
-    'Generation › GSECL generation by source and Gujarat › Gujarat supply by source: MW by source over the day as stacked areas, drag for every source at that time',
-    'Gujarat › Frequency and over / under drawal: touching or dragging shows the block’s drawal, schedule and frequency together',
-    'Gujarat › GSECL MU 00–17 h and 17–24 h: hour by hour for the day chosen, with the day before; the 30-day trend stays',
-    'Unit-wise trends: gaps filled with the readings of other phones (app closed, phone off)',
-    'Login activity: Live now counts only people with the app open; Used today list; the sign-in log folds away; security alerts highlighted with Acknowledge',
-    'New registrations wait for a super administrator’s approval (after the e-mailed code and the own password)',
-    'Super administrators: security alerts e-mailed and notified every 10 minutes until acknowledged']],
+    'Every trend: Today, Yesterday or any day from a calendar',
+    'GSECL and Gujarat generation by source as stacked charts over the day',
+    'Auto-refresh and background data are now your choice in Profile › Settings',
+  ]],
   ['3.15.6', '27 Oct 2026', [
-    'Gujarat › Frequency and over / under drawal: SLDC “Gujarat At periphery” drawal against schedule by 15-minute block, over-drawal as bars up and under-drawal as bars down, with the frequency line; today or yesterday, over / under MU, largest blocks, over-drawal below 49.90 Hz',
-    'Gujarat › GSECL MU 00–17 h and 17–24 h: two lines over 30 days with the average MW of each part and the evening ramp-up',
-    'DSM › Live DSM by block moved to the bottom, for the station and unit chosen (remembered)',
-    'DSM › Estimate: any past day from the calendar (older days from the stored daily figures)']],
+    'Gujarat › Frequency and over / under drawal by 15-minute block',
+    'DSM › Estimate for any past day from the calendar',
+  ]],
   ['3.15.5', '27 Oct 2026', [
-    'Generation › Hydro: levels of Ukai, Kadana, Panam and Sardar Sarovar with FRL, storage, inflow and outflow, read every day from the WRD Gujarat dam report; daily MU of Ukai, Ukai LBC, Kadana, Panam, SSP RBPH and CHPH (entered), today so far from SLDC, 31-day chart and level trend',
-    'Generation › Solar: GSECL solar sites with capacity, daily MU, CUF and month total; daily entry by site; GSECL MU including solar. Administrators add sites and who may enter them',
-    'Solar entry by an outside agency: role “Solar entry only” signs in with password and e-mailed code and sees nothing but the entry of its own sites (last 3 days), every change recorded',
-    'Peak and minimum are now taken by 15-minute time block (block average), as in the grid accounts',
-    'DSM › Live DSM by block: the running block with its clock, the 3 blocks before and the 3 after for every unit / PPA group: deviation, limit, frequency, rate and ₹, with the MW to run for the rest of the block',
-    'DSM: a unit shut down with zero schedule (RSD or outage) is now charged for its auxiliary drawal from the grid at RR, as CERC DSM Regulations 2024 Reg 8(9)',
-    'Coal › Coal and rake movement: rakes received now from FOIS (a rake inside the station counts as received) for every day']],
+    'Generation › Hydro: dam levels of Ukai, Kadana, Panam and Sardar Sarovar with daily MU',
+    'Generation › Solar: GSECL solar sites with daily MU, CUF and daily entry',
+    'DSM › Live DSM by block for every unit',
+  ]],
   ['3.15.4', '26 Oct 2026', [
-    'Security (Google Play Protect): the app no longer downloads or installs app files itself and no longer asks for permission to install apps. Update now opens the signed download page in the browser; install the downloaded file from there',
-    'App files (.apk) are never opened from chat or from documents',
-    'Every chart answers a touch: tap or drag across a line chart for the values of each line at that time, tap a bar or a donut for its value (Gujarat, today so far, forecast, 14 days, coal, DSM)']],
+    'Tap or drag on any chart to see its values',
+  ]],
   ['3.15.3', '26 Oct 2026', [
-    'Gujarat › Forecast vs actual: every day-ahead forecast is kept as it stood when the day began and compared with what happened: average error per block, bias, peak and peak-time error, energy error and blocks inside the 80 % range, day by day with the curves',
-    'The forecast fine-tunes itself from these comparisons (hourly correction from the last 21 days, from 5 days on, at most ±6 %)']],
-  ['3.15.2', '26 Oct 2026', [
-    'Coal › Map: map tiles load again (sent the way OpenStreetMap asks), and rail routes read by the Android phones are shared, so the web version also places the rakes on the map',
-    'Older app versions keep working with a reminder to update (Update now / Download page / Later); blocking is only switched on by the administrator']],
+    'Gujarat › Forecast vs actual: how the day-ahead forecast compared with the actual demand',
+  ]],
   ['3.15.1', '26 Oct 2026', [
-    'Coal › Rake unloading status worked out from FOIS for every day: rakes received (inside the station) and released (left the FOIS report), balance, wagons placed, detention (placement to release), demurrage beyond the free time, wagon-hours and the demurrage charge, with every rake of the day',
-    'FOIS rakes read every 2 minutes (in the background and while the coal page is open)',
-    'Lignite stock position for BLTPS and KLTPS (no rakes): receipt, consumption, closing stock and days at 85 % PLF']],
-  ['3.15.0', '26 Oct 2026', [
-    'Security: the app’s pages run under a strict content policy (only the app’s own scripts, no outside connections), the native bridges answer only the app’s own pages, and links open only web, mail and phone addresses',
-    'Every request says which app and version sent it; versions older than the newest published app are refused and shown the update and download page (Work › Login activity lists the versions in use)',
-    'SLDC login kept in Script Properties (no longer in the Sheet) and never sent along a redirect']],
-  ['3.14.6', '26 Oct 2026', [
-    'Shared page code reorganised for the Gujarat Power and India apps; no change to features']],
-  ['3.14.4', '25 Oct 2026', [
-    'The SLDC merit order and outage list are now read in full (all Gujarat generators and sectors), for the new Gujarat Power app; app updates are offered per app']],
+    'Coal › Rake unloading status: received, released, detention and demurrage for every day',
+    'Lignite stock position for BLTPS and KLTPS',
+  ]],
   ['3.14.3', '24 Oct 2026', [
-    'Generation › Gujarat redesigned for management: live position (catered, generation, import, RE and GSECL share, today’s peak, energy, solar and wind MU, tomorrow’s forecast peak) with today’s demand curve and the generation-mix chart',
-    'Tomorrow’s load forecast of Gujarat catered: 96-block curve with an 80 % range, peak, minimum and energy, from similar days (weekday / Saturday / Sunday and holidays), the temperature forecast and the recent level; accuracy from the last 14 days; scenarios as working day, holiday, ±2 °C',
-    'Gujarat demand · last 14 days: daily peak and time, energy, solar, wind and RE share, as a chart and a table']],
-  ['3.14.2', '24 Oct 2026', [
-    'Security: every refused attempt (unknown employee number, blocked account, wrong password, forged sign-in) is logged; a device that is not an employee’s is blocked after 5 refusals in an hour and super administrators are alerted',
-    'Security: anyone added to the Google Sheet or its Drive folders, or link sharing, is removed within 15 minutes and reported',
-    'More › Login activity: Security card with blocked devices (Unblock) and recent alerts']],
-  ['3.14.1', '24 Oct 2026', [
-    'DSM › Estimate: the SLDC schedule revision is shown inside the day card and on each date chip (R107); days stored before revisions were recorded show theirs too']],
-  ['3.14.0', '24 Oct 2026', [
-    'SLDC DC / SG: the latest schedule revision is read again for yesterday (every 30 min) and the day before (every 3 h), as SLDC often revises late at night; a newer revision replaces the day and its stored DSM and PAF are worked out again',
-    'DSM estimate, block detail and PAF & AFC show the SLDC schedule revision used and when it was read']],
-  ['3.13.9', '24 Oct 2026', [
-    'Generation › Today so far, GSECL and Gujarat today: worked out from the readings kept by GSECL Connect, so every device shows the same energy, peak, low and average (this device’s own readings only when the service cannot be reached); the average is time-weighted, in line with the MU']],
-  ['3.13.8', '24 Oct 2026', [
-    'Generation: notes on the data sources are shown at the foot of the page as a note, not as an error at the top',
-    'Outage list sent to GSECL Connect now includes the unit capacity (for the web version)']],
-  ['3.13.7', '24 Oct 2026', [
-    'Coal › Stock: rakes received in the stock ledger and the daily rake requirement come from the rake trend (rake came inside the station in FOIS); for a day FOIS shows none, the Rake Unloading entry from the Google Sheet is used, so no available figure is left out',
-    'Coal › Rake trend: the same rule for received and released']],
-  ['3.13.6', '23 Oct 2026', [
-    'Blocked or removed accounts are signed out at once, also when only the background monitor or notifications are running; the sign-in screen says why',
-    'Publishing (circulars, news, notices) and administration (employees, block / unblock, password reset, phones, login activity) are for super administrators only']],
+    'Generation › Gujarat redesigned: live position, tomorrow’s load forecast and the last 14 days',
+  ]],
   ['3.13.5', '23 Oct 2026', [
-    'Generation › Dashboard: GSECL and Gujarat today - energy (MU) and maximum MW of Gujarat catered and GSECL with GSECL’s share, and Gujarat solar and wind MU',
-    'Daily report: GSECL and Gujarat table - maximum MW and time, MU, share of GSECL (maximum and energy), solar and wind MU',
-    'Employees (administrators): Block access / Unblock with a reason - a blocked person is signed out on every phone and told their access is blocked']],
+    'Dashboard and daily report: GSECL and Gujarat energy, peak and GSECL share',
+  ]],
   ['3.13.4', '23 Oct 2026', [
-    'Coal › Stock: daily rake requirement at 85 % PLF in the stock ledger (rakes needed per day and rakes received), with a card showing the basis - capacity, actual specific coal, coal per rake - and the 7-day average received against it',
-    'DSM: actual injection is now generation less auxiliary consumption (9 % for units up to 210 MW, 5.25 % for 500 MW and above), as SLDC generation is not ex-bus']],
-  ['3.13.3', '23 Oct 2026', [
-    'SLDC DC / SG relay: reads the API key, token and month lists in the form SLDC actually sends (checked against the live service)']],
-  ['3.13.2', '23 Oct 2026', [
-    'SLDC DC / SG relay: starts right after the update; a phone not yet allowed asks again within an hour (status in the Sheet menu Test SLDC DC/SG API)']],
-  ['3.13.1', '23 Oct 2026', [
-    'SLDC DC / SG: SLDC accepts Indian networks only, so the relay phone (a super administrator, or as set in the Sheet) fetches it every 15 minutes and shares it with every device; the year so far is filled in a few hours']],
+    'Coal › Stock: daily rake requirement at 85 % PLF',
+  ]],
   ['3.13.0', '23 Oct 2026', [
-    'PAF & AFC recovery: full FY 2026-27 history - April to September from the MIS (Digest), October from the daily dashboards and statement; YTD, MTD, cumulative and AFC loss as in the GSECL statement',
-    'SLDC DC / SG API (official declared capacity on-bar / off-bar and schedule, 96 blocks) used for PAF, PLF and the DSM estimate when set up',
-    'Efficiency: FY 2026-27 up to September (MIS) - generation, PLF, availability, heat rate, specific coal and oil, aux power, coal consumption and GCV',
-    'Outage register: April–September outages from the MIS added',
-    'Coal › Rake trend: received = rake came inside the station, released = left after being inside (FOIS), the same on every device']],
-  ['3.12.2', '23 Oct 2026', [
-    'Trends: gaps in this phone’s history (app closed, phone off) are filled from the readings other devices sent to GSECL Connect (last 48 hours, every ~2 minutes)',
-    'PAF: normative ex-bus capacity of each PPA group as in the GSECL dashboard (target DC), so PAF = actual DC ÷ target DC as in the daily statement']],
-  ['3.12.1', '23 Oct 2026', [
-    'PAF: units on reserve shutdown (RSD) count as available (the DC feed shows 0 for them) - gas stations on RSD no longer show 0%; hydro PAF = installed capacity less units on forced / planned outage',
-    'AFC actual, loss and asking rate are shown only when YTD PAF covers the year so far; until the past daily PAF is loaded (Sheet tab PafImport) a note explains it, instead of a misleading loss']],
+    'PAF & AFC recovery with full FY 2026-27 history; efficiency and outages up to September',
+  ]],
   ['3.12.0', '23 Oct 2026', [
-    'PAF and PLF as per CERC Tariff Regulations 2024: PAF = declared capacity ex-bus ÷ [installed × (1 − normative aux)], PLF on the SLDC schedule; by PPA group (UTPS 3-5 … KHPS) with daily, MTD and YTD',
-    'New: Connect › More › PAF & fixed cost (AFC) recovery - the GSECL statement with target, cumulative previous month, daily asking rate, AFC to date and loss, reasons, day-wise detail, CSV',
-    'DSM estimate as per CERC DSM Regulations 2024 (Reg 8(1) frequency bands and volume limits, Reg 8(12) forced outage) at each PPA group’s energy charge rate, with a block-by-block working',
-    'Generation: PAF card now shows PAF live from the declared capacity, day / MTD / YTD and the AFC loss; "PLF now" renamed "Loading now" (gross MW ÷ installed)',
-    'Daily report: PAF and AFC recovery statement, CERC DSM estimate, outage MW filled in, tables printed at one size']],
-  ['3.11.0', '23 Oct 2026', [
-    'Shared live data: when this phone cannot reach SLDC, the GSECL feed, IEX or FOIS, it shows the latest reading another phone shared through GSECL Connect (checked every minute, marked “Shared” with its time)',
-    'Each phone shares its own readings when the service asks for them; FOIS rake lists are also kept in the Google Sheet (tab FoisRakes)']],
-  ['3.10.3', '22 Oct 2026', [
-    'Fix: the Generation dashboard stayed on "Connecting…" in 3.10.2 (an error in the page)',
-    'Page errors are now shown briefly and reported, so problems can be fixed quickly']],
+    'New page Connect › More › PAF & fixed cost (AFC) recovery',
+    'DSM estimate as per CERC DSM Regulations 2024',
+  ]],
   ['3.10.2', '22 Oct 2026', [
-    'New: Connect › More › AOH / COH planning - planned shutdowns of every unit by financial year (FY 2026-27 and 2027-28 loaded; later years can be added), year timeline with boiler certificate expiry, under shutdown now / next 90 days, CSV export',
-    'Boiler certificate check: certificates that run out before the unit’s next planned shutdown are flagged for extension',
-    'Unit details (capacity, make, commissioning, boiler no. and expiry) updated from the latest list']],
-  ['3.10.1', '22 Oct 2026', [
-    'Chat: read receipts - ✓ sent, ✓✓ read (blue when everyone has read); tap your message to see who in a group has read it',
-    'Stability: the app no longer closes when Android stops the page renderer (low memory); the background monitor cannot crash the app after an update; crash details are sent to the service to help fix problems']],
+    'New page Connect › More › AOH / COH planning with boiler certificate expiry',
+  ]],
   ['3.10.0', '22 Oct 2026', [
-    'New Chat tab: end-to-end encrypted messages and documents between GSECL employees - one-to-one and groups (admins add or remove members), replies, delete for everyone, security number to check in person',
-    'Messages are encrypted on the phone; the GSECL Connect service and Google keep only encrypted data and cannot read them',
-    'Message an employee straight from People (Connect)',
-    'Notification of new messages every 15 minutes when the app is closed (the text is not shown in the notification)']],
+    'New Chat tab: end-to-end encrypted messages and documents, one-to-one and groups',
+  ]],
   ['3.9.4', '22 Oct 2026', [
-    'Generation: new Plant availability (PAF) card - PAF now, today so far, yesterday and cumulative PAF (since the first day with data, month to date and FY to date) for thermal, lignite and gas stations and GSECL (RSD counts as available, hydro not included), units not available, CSV export']],
+    'Generation: Plant availability (PAF) card',
+  ]],
   ['3.9.3', '22 Oct 2026', [
-    'DSM: new Estimate tab - deviation charges worked out block by block from live generation, schedule and IEX prices, before SLDC publishes the account',
-    'Daily management report redesigned: summary with highlights, generation by fuel and station, PAF of thermal, lignite and gas, outages by kind with days out and overdue returns, DSM estimate and accounts, coal, safety',
-    'Outage dates in the report corrected (they were read month-first)',
-    'Coal stock: availability days at 85% PLF worked out for every plant, including Sikka']],
-  ['3.9.2', '22 Oct 2026', [
-    'Daily management report: SLDC generation and outages now come from the app (SLDC does not answer the Google servers)',
-    'Tablets: two-column layout up to 1500 px wide, three columns above',
-    'Data-source warnings folded into one line']],
+    'DSM › Estimate: deviation charges block by block before SLDC publishes the account',
+  ]],
   ['3.9.1', '22 Oct 2026', [
-    'New Generation dashboard: live summary, today vs yesterday, fuel-wise loading, station table, unit status board, grid context',
-    'Profile button at the top right with the menu (profile, notifications, refresh, settings, sign out)',
-    'Gujarat page: solar & wind forecast with net load and evening ramp',
-    'Outage register: reliability by unit (MTBF, MTTR), repeat boiler tube leaks, cause-wise trend',
-    'Daily management report (PDF) for administrators, also e-mailed every morning',
-    'Security: app lock with fingerprint / screen lock, encrypted storage on the phone, 7-day sign-in renewed on use, FOIS login kept in the Google Sheet',
-    'App updates: a new version put in the Drive folder is offered here and as a notification',
-    'Tablets: pages fill the screen in two or three columns; bottom bar spacing fixed']],
-  ['3.9.0', '22 Oct 2026', ['DSM pages redesigned; all financial years downloaded automatically with a data check', 'India & Gujarat installed capacity from CEA every month']],
-  ['3.8.1', '22 Oct 2026', ['Faster employee administration; new employees appear in minutes']],
-  ['3.8.0', '21 Oct 2026', ['Google Authenticator as an alternative to the e-mailed code', 'Code mails removed from the sender\'s Sent folder']],
-  ['3.7.1', '21 Oct 2026', ['Super administrator role and approval of extra phones']],
-  ['3.7.0', '21 Oct 2026', ['Register / forgot password with e-mail code, one phone per account, login activity, corporate design']],
-  ['3.6.0', '19 Oct 2026', ['Efficiency history from 2014-15, outage donuts, birthdays today only']],
+    'New Generation dashboard, profile menu at the top right, app lock with fingerprint',
+    'Outage register: reliability by unit; daily management report e-mailed every morning',
+  ]],
+  ['3.9.0', '22 Oct 2026', ['DSM pages redesigned', 'India & Gujarat installed capacity from CEA']],
+  ['3.8.0', '21 Oct 2026', ['Google Authenticator as an alternative to the e-mailed code']],
+  ['3.7.0', '21 Oct 2026', ['Register / forgot password with e-mail code, login activity, new design']],
+  ['3.6.0', '19 Oct 2026', ['Efficiency history from 2014-15, outage charts, birthdays today']],
 ];
 
 let updMsg = '', updErr = false;

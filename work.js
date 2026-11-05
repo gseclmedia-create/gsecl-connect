@@ -18,7 +18,7 @@ const W_PAGES = [
   ['pubnote', 'Send a notice', 'To everyone, a station, a department or one employee', 'notifications', 'edit'],
   ['admin', 'Employees', 'Add or update employees, access, password reset and registered phone', 'employees', 'edit'],
   ['activity', 'Login activity', 'Who is live now, sign-ins, refused phones, day-wise peak', 'employees', 'edit'],
-  ['u8', 'WTPS Unit 8 · live', 'Live plant parameters, KPI trends, boiler, turbine, generator, SWAS (access on approval)', 'everyone', 'view'],
+  ['u8', 'WTPS Unit 8 · live', 'Live plant parameters, KPI trends, boiler, turbine, generator, SWAS', 'wtps_u8', 'view'],   // only when a super administrator gave it
   ['devreq', 'Approvals', 'New registrations, another phone, page access (super administrator)', 'superadmin', 'edit'],
   ['mgmtrep', 'Daily management report', 'Generation, outages, DSM, coal and safety of a day as a PDF', 'adminonly', 'edit'],
 ];
