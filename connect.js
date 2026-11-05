@@ -188,7 +188,8 @@ const conEmpRow = e => `<div class="srow" data-cact="emp" data-carg="${esc(e.emp
 const conCircRow = c => `<div class="oq" style="--oc:${c.is_important ? 'var(--forced)' : 'var(--accent)'}" data-cact="circular" data-carg="${c.id}">
   <div class="oq-h"><span class="nm" style="font-size:14px">${esc(c.title)}</span></div>
   <div class="live">${[c.category && `<span class="src-tag" style="margin-left:0">${esc(c.category)}</span>`, c.is_important ? '<span class="badge b-Forced">Important</span>' : '', conDate(c.issue_date), esc(c.circular_no || ''), esc(c.station || 'All GSECL')].filter(Boolean).join(' · ')}</div>
-  ${c.summary ? `<div class="rs" style="margin-top:6px">${esc(c.summary)}</div>` : ''}</div>`;
+  ${c.summary ? `<div class="rs" style="margin-top:6px">${esc(c.summary)}</div>` : ''}
+  ${c.ai && c.ai.summary ? `<div class="rs" style="margin-top:6px"><span class="src-tag" style="margin-left:0">AI</span> ${esc(c.ai.summary)}</div>` : ''}</div>`;
 
 const conNewsRow = n => `<div class="oq" style="--oc:var(--brand2)" data-cact="news" data-carg="${n.id}">
   <div class="oq-h"><span class="nm" style="font-size:14px">${esc(n.title)}</span></div>
@@ -387,6 +388,10 @@ function conDetailCircular() {
       ${conField('Circular no.', esc(c.circular_no || ''))}${conField('Issue date', conDate(c.issue_date))}
       ${conField('Issued by', esc(c.issued_by || ''))}${conField('Applies to', esc(c.station || 'All GSECL'))}</div>
       ${c.summary ? `<div class="rs" style="white-space:pre-wrap">${esc(c.summary)}</div>` : ''}</div>
+    ${c.ai && c.ai.summary ? `<div class="blk" style="border-left:4px solid #7c3aed"><div class="blk-h">In short <span>AI · Google Gemini</span></div>
+      <div style="white-space:pre-wrap">${esc(c.ai.summary)}</div>${c.ai.gu ? `<div lang="gu" style="white-space:pre-wrap;margin-top:8px">${esc(c.ai.gu)}</div>` : ''}
+      ${(c.ai.keywords || []).length ? `<div style="margin-top:8px">${c.ai.keywords.map(k => `<span class="src-tag" style="margin:0 4px 4px 0">${esc(k)}</span>`).join('')}</div>` : ''}
+      <div class="blk-sub">Written by AI from the document; the circular itself is what applies.</div></div>` : ''}
     ${a ? `<div class="blk"><div class="blk-h">${esc(a.name || 'Document')}<span>${a.size ? fmt(a.size / 1024) + ' KB' : ''}</span></div>${conBtn(C.opening ? 'Opening…' : 'Open document', 'openfile', a.id, true)}
       <div class="blk-sub">Downloaded once, then kept on this phone.</div></div>` : '<div class="note-src">No document attached.</div>'}</div>`;
 }

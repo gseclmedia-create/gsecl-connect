@@ -38,13 +38,13 @@
         <div class="note-src">From the SLDC UI-RE notices read by the Android app (latest revision of each week). Net = payable − receivable.</div></div>`;
   }
 
-  window.dsmShow = function () { if (!['est', 'wk'].includes(D.tab)) D.tab = 'est'; dsmRender(); };
+  window.dsmShow = function () { if (!['est', 'wk', 'cmp'].includes(D.tab)) D.tab = 'est'; dsmRender(); };
   window.dsmRender = function () {
     const box = $('dsmBody'); if (!box) return;
-    if (!['est', 'wk'].includes(D.tab)) D.tab = 'est';
+    if (!['est', 'wk', 'cmp'].includes(D.tab)) D.tab = 'est';
     D.charts = [];
-    let h = `<div class="seg" style="grid-template-columns:repeat(2,1fr)">${[['est', 'Estimate'], ['wk', 'Weekly accounts']].map(([k, l]) => `<button class="${D.tab === k ? 'on' : ''}" data-dact="tab" data-darg="${k}">${l}</button>`).join('')}</div>`;
-    h += D.tab === 'est' ? dTabEst() : weekly();
+    let h = `<div class="seg" style="grid-template-columns:repeat(3,1fr)">${[['est', 'Estimate'], ['wk', 'Weekly accounts'], ['cmp', 'SLDC vs estimate']].map(([k, l]) => `<button class="${D.tab === k ? 'on' : ''}" data-dact="tab" data-darg="${k}">${l}</button>`).join('')}</div>`;
+    h += D.tab === 'est' ? dTabEst() : D.tab === 'cmp' ? dTabCmp() : weekly();
     box.innerHTML = h + '<div class="credit">Estimate: CERC DSM Regulations 2024 · weekly accounts as published by SLDC · Developed by <b>A D Bhatt</b>, EE, GSECL</div>';
     box.querySelectorAll('[data-dchart]').forEach(el => dDrawChart(el, D.charts[+el.dataset.dchart]));
   };

@@ -391,6 +391,30 @@ function oCauseTrend(c) {
   ${csvBtn('oCause', 'GSECL_outage_hours_by_cause_' + c.from, [weekly ? 'Week from' : 'Month'].concat(causes), keys.map(k => [k].concat(causes.map(cs => +(buckets.get(k)[cs] || 0).toFixed(1)))))}</div>`;
 }
 
+/**
+ * Forced outages by equipment: the reason texts grouped by the AI (Google Gemini) on the GSECL Connect service, with the
+ * parts named and the units where one cause came back. RSD and planned outages are left out.
+ */
+function oAiCauses(c) {
+  const f = c.items.filter(x => x.hrsIn > 0 && x.ai && !/^(Reserve shutdown|Planned maintenance)$/.test(x.ai[0]));
+  const waiting = c.items.filter(x => x.hrsIn > 0 && !x.ai && x.cls === 'forced').length;
+  if (!f.length) return waiting ? `<div class="card"><h2>Forced outages by equipment</h2>${conEmpty('The reasons are being grouped (' + waiting + ' waiting); this appears within a few hours.')}</div>` : '';
+  const g = {};
+  f.forEach(x => { const k = x.ai[0], o = g[k] || (g[k] = {k, n: 0, h: 0, units: new Set(), parts: {}}); o.n++; o.h += x.hrsIn || 0; o.units.add(x.code); if (x.ai[1]) o.parts[x.ai[1]] = (o.parts[x.ai[1]] || 0) + 1; });
+  const list = Object.values(g).sort((a, b) => b.h - a.h), max = Math.max(1, ...list.map(o => o.h));
+  const rep = {};
+  f.forEach(x => { const k = x.code + '|' + x.ai[0] + (x.ai[1] ? ' · ' + x.ai[1] : ''); (rep[k] || (rep[k] = [])).push(x); });
+  const again = Object.entries(rep).filter(([, l]) => l.length > 1).sort((a, b) => b[1].length - a[1].length).slice(0, 8);
+  return `<div class="card"><h2>Forced outages by equipment ${conMore(f.length + ' outages')}</h2>
+    ${list.map(o => `<div class="srow"><div class="top"><span class="nm">${esc(o.k)}</span><span class="vals num"><b>${fmt(o.h, 0)} h</b> · ${o.n}</span></div>
+      <div style="height:5px;border-radius:3px;background:var(--soft);margin:4px 0;overflow:hidden"><i style="display:block;height:100%;width:${(o.h / max * 100).toFixed(1)}%;background:var(--forced)"></i></div>
+      <div class="vals">${esc([...o.units].slice(0, 8).join(', '))}${Object.keys(o.parts).length ? ' · ' + esc(Object.entries(o.parts).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([p, n]) => p + (n > 1 ? ' ×' + n : '')).join(', ')) : ''}</div></div>`).join('')}
+    ${again.length ? `<h3 style="margin:12px 0 4px;font-size:13px">Same cause again</h3>${again.map(([k, l]) => `<div class="srow"><div class="top"><span class="nm">${esc(k.split('|')[0])} · ${esc(k.split('|')[1])}</span><span class="vals num"><b>${l.length}×</b></span></div>
+      <div class="vals">${l.map(x => conDate(x.trip_at)).join(', ')}</div></div>`).join('')}` : ''}
+    <div class="note-src">Grouped by AI (Google Gemini) from the reason entered for each outage${waiting ? '; ' + waiting + ' still waiting' : ''}. Check the reason in the list before acting.</div>
+    ${csvBtn('oAi', 'GSECL_forced_outages_by_equipment_' + c.from, ['Unit', 'Trip', 'Hours in period', 'Kind', 'Equipment', 'Part', 'Reason'], f.map(x => [x.code, x.trip_at, +(x.hrsIn || 0).toFixed(1), x.type_label, x.ai[0], x.ai[1], x.reason]))}</div>`;
+}
+
 function oReg() {
   const d = W.data.opack;
   if (!d) return W.busy ? conSpin() : '';
@@ -420,6 +444,7 @@ function oReg() {
   h += oTimeline(c);
   h += oReliability(c);
   h += oCauseTrend(c);
+  h += oAiCauses(c);
   if (c.types.length) { const max = Math.max(1e-9, ...c.types.map(x => x.hours));
     h += `<div class="card"><h2>By cause ${conMore('hours · trips')}</h2>${c.types.map(x => `<div class="srow" style="cursor:default"><div class="top"><span class="nm">${esc(x.label)}</span><span class="vals num"><b style="color:var(--ink)">${fmt(x.hours, 1)} h</b> · ${x.count} trip${x.count === 1 ? '' : 's'}</span></div>
       <div style="height:10px;margin-top:6px;border-radius:3px;width:${Math.max(x.hours / max * 100, x.hours ? 1.5 : 0)}%;background:${O_COL[x.cls]}"></div></div>`).join('')}${tLegend(O_CLS.map(([, l, col]) => [col, l]))}</div>`; }

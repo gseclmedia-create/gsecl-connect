@@ -151,6 +151,11 @@ function sTabStock() {
 
   h += sCalendar(dates, date);
   if (critical.length) h += `<div class="alert err"><span>⚠</span><span>Critical stock (under 5 days): ${critical.map(r => `${r.plant} ${fmt(r.availability_days, 1)} days`).join(', ')}</span></div>`;
+  const ai = SP.data && SP.data.ai;
+  if (ai && ai.note) h += `<div class="card" style="border-left:4px solid #7c3aed"><h2>Coal position in brief <span class="more muted" style="font-weight:500;font-size:11.5px">AI · ${ai.at ? new Date(ai.at).toLocaleString('en-IN', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false}) : ''}</span></h2>
+    <div style="white-space:pre-wrap;font-size:13.5px;line-height:1.5">${esc(ai.note)}</div>
+    ${(ai.alerts || []).map(x => `<div class="srow" style="cursor:default"><div class="top"><span class="nm">${esc(x.plant)}</span></div><div class="vals">${esc(x.text)}</div></div>`).join('')}
+    <div class="note-src">Written by AI (Google Gemini) from the stock, rake requirement and FOIS figures below; the figures are the record.</div></div>`;
   h += `<div class="card"><h2>GSECL coal stock position <span class="more muted" style="font-weight:500;font-size:11.5px">${spDate(date)}</span></h2>
     <div class="gen"><div><div class="lbl">Total coal stock</div><div class="big num">${spMt(sum('end_stock'), 0)} <small>MT</small></div></div></div>
     <div class="tstats" style="grid-template-columns:repeat(3,1fr);margin-top:12px">

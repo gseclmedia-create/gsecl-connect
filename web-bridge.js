@@ -70,20 +70,26 @@
     return d;
   })();
   const deviceName = (() => { const u = navigator.userAgent; const m = /iPhone|iPad|Android|Macintosh|Windows/.exec(u); return ((m ? (m[0] === 'Macintosh' ? 'Mac' : m[0]) : 'Browser') + ' (web)').slice(0, 60); })();
+  // The sign-in lives only in this tab (sessionStorage): closing the tab ends it, and every visit starts with the
+  // password and a fresh e-mailed code (the service also ends a web sign-in after 30 minutes without use).
+  const TAB = { get: k => { try { return sessionStorage.getItem('gcs:' + k); } catch (e) { return TAB.mem[k] ?? null; } },
+    set: (k, v) => { TAB.mem[k] = v; try { sessionStorage.setItem('gcs:' + k, v); } catch (e) { /* this page only */ } },
+    del: k => { delete TAB.mem[k]; try { sessionStorage.removeItem('gcs:' + k); } catch (e) { /* none */ } }, mem: {} };
+  ['token', 'user', 'otp_at'].forEach(k => SS.del(k));          // a sign-in kept by an earlier version of this page
   const Session = {
-    get token() { return SS.get('token'); },
-    get user() { try { return JSON.parse(SS.get('user') || 'null'); } catch (e) { return null; } },
+    get token() { return TAB.get('token'); },
+    get user() { try { return JSON.parse(TAB.get('user') || 'null'); } catch (e) { return null; } },
     get isLoggedIn() { return !!(this.token && this.user); },
-    get otpFresh() { return Date.now() - Number(SS.get('otp_at') || 0) < OTP_DAYS * 864e5 - 36e5; },
+    get otpFresh() { return Number(TAB.get('otp_at') || 0) > 0; },
     get mustChange() { return !!(this.user && this.user.must_change_password); },
-    signIn(token, user, verified) { SS.set('token', token); SS.set('user', JSON.stringify(user)); SS.set('otp_at', verified ? String(Date.now()) : '0'); },
-    renew(t) { if (this.token) SS.set('token', t); },
-    updateUser(u) { SS.set('user', JSON.stringify(u)); },
-    passwordChanged(t) { const u = this.user || {}; u.must_change_password = false; SS.set('token', t); SS.set('user', JSON.stringify(u)); },
-    otpExpired() { SS.set('otp_at', '0'); },
+    signIn(token, user, verified) { TAB.set('token', token); TAB.set('user', JSON.stringify(user)); TAB.set('otp_at', verified ? String(Date.now()) : '0'); },
+    renew(t) { if (this.token) TAB.set('token', t); },
+    updateUser(u) { TAB.set('user', JSON.stringify(u)); },
+    passwordChanged(t) { const u = this.user || {}; u.must_change_password = false; TAB.set('token', t); TAB.set('user', JSON.stringify(u)); },
+    otpExpired() { TAB.set('otp_at', '0'); },
     /** Removes the sign-in and every saved copy; wipeChat also forgets this browser's chat keys. */
     signOut(wipeChat) {
-      ['token', 'user', 'otp_at', 'fois'].forEach(k => SS.del(k)); SS.clear('cache:'); SS.clear('chat');
+      ['token', 'user', 'otp_at'].forEach(k => TAB.del(k)); ['fois'].forEach(k => SS.del(k)); SS.clear('cache:'); SS.clear('chat');
       if (wipeChat) idb.del('chat').catch(() => {});
     },
     get reason() { return LS.get('gsecl_signout') || ''; }, set reason(v) { if (v) LS.set('gsecl_signout', v); else LS.del('gsecl_signout'); },

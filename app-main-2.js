@@ -1714,6 +1714,27 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What's new in each version (Profile › About): interface and feature changes users notice, the newest first. */
 const RELEASE_NOTES = [
+  ['3.18.0', '5 Nov 2026', [
+    'One device at a time: signing in on another phone or on the web (with a fresh code) signs this phone out; extra phones are no longer approved',
+    'New “Ask” button (top right): ask about demand, generation, units, outages, coal, PAF, DSM or prices on any day the app has kept; AI (Google Gemini) answers from the app’s own records',
+  ]],
+  ['3.17.8', '5 Nov 2026', [
+    'Safety: incident types, categories, permit types and PPE as in SIMS; choose the department and area from SIMS when reporting',
+    'Safety: each incident shows its statutory forms (Form I … Form-A) and where their approval stands; permits show their SIMS approval stages',
+    'Safety: photos go to SIMS with the report, and SIMS photos show here',
+  ]],
+  ['3.17.7', '5 Nov 2026', [
+    'Safety linked with the SIMS portal: observations and incidents reported or closed here go to SIMS, and SIMS records show here (marked SIMS)',
+    'Permits to work are raised and approved in the SIMS portal; this app shows them',
+  ]],
+  ['3.17.6', '5 Nov 2026', [
+    'DSM › SLDC vs est.: each SLDC weekly account against the system’s own estimate, station group by group, with the week explained',
+    'Outage register: forced outages grouped by equipment (tube leak, mills, fans, turbine …) with the units where a cause came back',
+    'Safety: suggested category, priority or severity, likely root cause and an English version on each observation and incident',
+    'Circulars: a short summary, also in Gujarati, on each circular; search finds circulars by topic',
+    'Coal stock: the position in brief, with the stations that need rakes',
+    'Daily management report: key points of the day at the top',
+  ]],
   ['3.17.5', '4 Nov 2026', [
     'People and birthdays: a green dot for active employees, a grey dot for those whose app access is off',
     'App update: “Update now” downloads the new version directly in the browser',

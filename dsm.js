@@ -9,7 +9,7 @@ const D = {
   status: {running: false, message: ''}, seenError: '', poll: 0,
 };
 const hasDsm = () => typeof window.Dsm !== 'undefined';
-const DSM_TABS = [['fy', 'FY'], ['weeks', 'Weeks'], ['stations', 'Stations'], ['monthly', 'Monthly'], ['solar', 'Solar'], ['est', 'Estimate']];
+const DSM_TABS = [['fy', 'FY'], ['weeks', 'Weeks'], ['stations', 'Stations'], ['monthly', 'Monthly'], ['solar', 'Solar'], ['est', 'Estimate'], ['cmp', 'SLDC vs est.']];
 const DSM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // ---------------------------------------------------------------- formatting
@@ -503,8 +503,8 @@ function dsmRender() {
     h += D.detail.type === 'week' ? dDetailWeek(D.detail.id) : D.detail.type === 'station' ? dDetailStation(D.detail.id) : dDetailMonth(D.detail.id);
   } else {
     h += `<div class="chips">${d.years.map(y => `<button class="chip ${y === d.fy ? 'on' : ''}" data-dact="fy" data-darg="${esc(y)}">FY ${esc(y)}</button>`).join('')}</div>
-      <div class="seg" style="grid-template-columns:repeat(6,1fr)">${DSM_TABS.map(([k, l]) => `<button class="${D.tab === k ? 'on' : ''}" data-dact="tab" data-darg="${k}" style="padding:8px 2px;font-size:13px">${l}</button>`).join('')}</div>`;
-    h += {fy: dTabFy, weeks: dTabWeeks, stations: dTabStations, monthly: dTabMonthly, solar: dTabSolar, est: dTabEst}[D.tab]();
+      <div class="seg" style="grid-template-columns:repeat(4,1fr)">${DSM_TABS.map(([k, l]) => `<button class="${D.tab === k ? 'on' : ''}" data-dact="tab" data-darg="${k}" style="padding:8px 2px;font-size:13px">${l}</button>`).join('')}</div>`;
+    h += {fy: dTabFy, weeks: dTabWeeks, stations: dTabStations, monthly: dTabMonthly, solar: dTabSolar, est: dTabEst, cmp: dTabCmp}[D.tab]();
   }
   box.innerHTML = h + '<div class="credit">Figures are provisional until SLDC finalises the account · Developed by <b>A D Bhatt</b>, EE, GSECL</div>';
   box.querySelectorAll('[data-dchart]').forEach(el => dDrawChart(el, D.charts[+el.dataset.dchart]));
@@ -628,3 +628,59 @@ window.appBack = () => {
 
 window.addEventListener('resize', () => { if ($('v-dsm').classList.contains('on')) dsmRender(); });
 window.dsmResume();
+
+// ---------------------------------------------------------------- SLDC weekly account against the system's estimate
+
+/**
+ * Each SLDC week (thermal, gas and hydro: GSECL solar has no estimate) against the estimate of the same days, by PPA
+ * group, from the GSECL Connect service (dsm_compare), with the AI's explanation of the week. Difference = SLDC − estimate.
+ */
+async function dCmpLoad(fy) {
+  if (D.cmpBusy || typeof conCall !== 'function' || (typeof hasConnect === 'function' && !hasConnect())) return;
+  D.cmpBusy = true; D.cmpErr = ''; if (D.tab === 'cmp') dsmRender();
+  const r = await conCall('dsm_compare', fy ? {fy} : {});
+  D.cmpBusy = false;
+  if (r.ok) D.cmp = r.data; else D.cmpErr = /unknown action/i.test(r.error) ? 'Update the GSECL Connect script in the Google Sheet (new Code.gs) for the comparison.' : r.error;
+  if (D.tab === 'cmp') dsmRender();
+}
+
+const dDiff = v => v === null || v === undefined ? '—' : Math.abs(v) < 1 ? '₹0' : `<span class="${v > 0 ? 'neg' : 'pos'}">${v > 0 ? '+' : '−'}${dRup(v)}</span>`;
+
+function dTabCmp() {
+  if (typeof hasConnect === 'function' && !hasConnect()) return '<div class="card"><div class="empty">Sign in to GSECL Connect to compare.</div></div>';
+  if (!D.cmp) {
+    if (!D.cmpBusy && !D.cmpErr) setTimeout(() => dCmpLoad(''), 0);
+    return D.cmpErr ? `<div class="alert err"><span>⚠</span><span>${esc(D.cmpErr)}</span></div>` : '<div class="card"><div class="sk" style="height:160px"></div></div>';
+  }
+  const d = D.cmp, both = d.weeks.filter(w => w.est_days);
+  let h = d.years.length > 1 ? `<div class="chips">${d.years.map(y => `<button class="chip ${y === d.fy ? 'on' : ''}" data-dcmp="fy" data-darg="${esc(y)}">FY ${esc(y)}</button>`).join('')}</div>` : '';
+  if (!d.weeks.length) return h + '<div class="card"><div class="empty">No SLDC weekly account uploaded yet. Phones of DSM editors upload each week after reading SLDC’s report.</div></div>';
+  const sl = both.reduce((t, w) => t + w.sldc_net_matched, 0), es = both.reduce((t, w) => t + (w.est_net || 0), 0);
+  h += `<div class="card"><h2>SLDC account vs system estimate · FY ${esc(d.fy)} ${conMore('thermal, gas, hydro')}</h2>
+    <div class="tstats" style="grid-template-columns:repeat(3,1fr)"><div><span>Weeks compared</span><b class="num">${both.length}</b><small>of ${d.weeks.length} SLDC weeks</small></div>
+      <div><span>SLDC</span><b class="num">${dNet(sl)}</b><small>same groups and days</small></div><div><span>Estimate</span><b class="num">${dNet(es)}</b><small>difference ${dDiff(sl - es)}</small></div></div>
+    <div class="note-src">The estimate is worked out by GSECL Connect from SLDC real-time generation, the SLDC schedule and IEX prices${d.est_from ? ', kept from ' + dDate(d.est_from) : ''}; SLDC publishes its account some months later, so recent weeks are compared once SLDC uploads them. Difference = SLDC − estimate (+ means SLDC charged more).</div></div>`;
+  h += d.weeks.map(w => {
+    const open = D.cmpOpen === String(w.week), diff = w.est_days ? w.sldc_net_matched - (w.est_net || 0) : null;
+    let x = `<div class="oq" style="--oc:${w.est_days ? 'var(--accent)' : 'var(--off)'}" data-dcmp="wk" data-darg="${w.week}">
+      <div class="oq-h"><span class="nm">Week ${w.week}</span><span class="badge ${w.rev ? 'b-RSD' : 'b-Outage'}">REV-${w.rev}</span><span class="muted" style="margin-left:auto;font-size:12px">${dDay(w.from)} – ${dDay(w.to)}</span></div>
+      <div class="meta num"><div><span>SLDC</span>${dNet(w.sldc_net)}</div><div><span>Estimate</span>${w.est_days ? dNet(w.est_net) + ` <small class="muted">${w.est_days}/7 days</small>` : '<span class="na">no data for these days</span>'}</div>
+        <div><span>Difference</span>${dDiff(diff)}</div></div>
+      ${w.ai && w.ai.note ? `<div class="rs" style="margin-top:6px"><span class="src-tag" style="margin-left:0">AI</span> ${esc(w.ai.note)}</div>` : ''}</div>`;
+    if (open) x += `<div class="card" style="margin-top:-6px"><div style="overflow-x:auto"><table class="dt num"><tr><th>Group</th><th>SLDC</th><th>Estimate</th><th>Days</th><th>Difference</th></tr>
+      ${w.groups.map(g => `<tr><td title="${esc(g.names.join(', '))}">${esc(g.group)}</td><td>${g.sldc ? dNet(g.sldc.net) : '—'}</td><td>${g.est ? dNet(g.est.net) : '—'}</td><td>${g.est ? g.est.days : '—'}</td><td>${dDiff(g.diff)}</td></tr>`).join('')}</table></div>
+      ${w.unmatched.length ? `<div class="note-src">Not matched to a group: ${esc(w.unmatched.join(', '))}</div>` : ''}
+      ${w.est_days && w.est_days < 7 ? `<div class="note-src">The estimate covers ${w.est_days} of 7 days, so the difference includes the days without readings.</div>` : ''}
+      ${csvBtn('dCmp' + w.week, `DSM_SLDC_vs_estimate_FY_${d.fy}_W${w.week}`, ['Group', 'SLDC names', 'SLDC net Rs', 'SLDC payable Rs', 'SLDC receivable Rs', 'Estimate net Rs', 'Estimate days', 'Difference Rs'],
+        w.groups.map(g => [g.group, g.names.join(' / '), g.sldc ? Math.round(g.sldc.net) : '', g.sldc ? Math.round(g.sldc.pay) : '', g.sldc ? Math.round(g.sldc.rec) : '', g.est ? Math.round(g.est.net) : '', g.est ? g.est.days : '', g.diff === null ? '' : Math.round(g.diff)]))}</div>`;
+    return x;
+  }).join('');
+  return h;
+}
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-dcmp]'); if (!el) return;
+  const a = el.dataset.darg || '';
+  if (el.dataset.dcmp === 'fy') { D.cmp = null; return dCmpLoad(a); }
+  if (el.dataset.dcmp === 'wk') { D.cmpOpen = D.cmpOpen === a ? '' : a; return dsmRender(); }
+});

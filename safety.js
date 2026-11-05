@@ -147,6 +147,63 @@ function yTabInc() {
 }
 
 const yStageLabel = p => (p.status === 'requested' ? ((Y.data.stages || [])[(p.stage || 1) - 1] || {}).label : '');
+/** The SIMS portal link (Sheet menu): permits are raised and approved there; the app shows them. */
+const ySims = () => Y.data && Y.data.sims && Y.data.sims.on;
+const ySimsNote = () => `<div class="note-src" style="margin-top:8px">Permits are raised and approved in the SIMS portal${Y.data.sims.portal
+  ? ` (<a href="${esc(Y.data.sims.portal)}" target="_blank" rel="noopener" style="color:var(--accent)">open SIMS</a>, office network)` : ''}; this page shows them as SIMS has them.</div>`;
+/** "SIMS" on a linked record; to safety officers, why the last copy to SIMS failed. */
+const ySimsTag = r => (r.sims_id ? '<span class="src-tag">SIMS</span>' : '') + (r.sims_note && (yCan('obs', 'edit') || yCan('inc', 'edit'))
+  ? `<div class="alert err" style="margin:8px 0 0"><span>⚠</span><span>${r.sims_sync === 'error' ? 'Not copied to SIMS: ' : 'SIMS: '}${esc(r.sims_note)}</span></div>` : '');
+
+/** SIMS's areas of a station, for the Department › Area choice: [[id, "Department › Area (Unit)"]]. */
+function ySimsAreas(st) {
+  const out = [['', 'Choose…']];
+  (Y.data.sims_tree || []).filter(p => !st || String(p.station).toUpperCase() === String(st).toUpperCase()).forEach(p => (p.units || []).forEach(u => (u.departments || [])
+    .forEach(d => (d.areas || []).forEach(a => out.push([String(a.id), `${d.name} › ${a.name}${(p.units || []).length > 1 ? ' (' + u.name + ')' : ''}`])))));
+  return out;
+}
+/** "Area, Department · spot" of a record linked to a SIMS area. */
+function ySimsPlace(r) {
+  if (!r.sims_area || !Y.data.sims_tree) return '';
+  for (const p of Y.data.sims_tree) for (const u of p.units || []) for (const d of u.departments || []) for (const a of d.areas || []) if (String(a.id) === String(r.sims_area)) return `${d.name} › ${a.name}`;
+  return '';
+}
+
+/** The statutory forms of an incident as SIMS has them: those that apply to its type, each with where its approval stands. */
+function ySimsForms(r) {
+  const cat = Y.data.sims_forms; if (!cat || !r.sims_id) return '';
+  let made = []; try { made = (JSON.parse(r.sims_extra || '{}').forms) || []; } catch (e) { made = []; }
+  const applies = f => f.types === 'not_near_miss' ? r.type !== 'Near Miss' : Array.isArray(f.types) ? f.types.includes(r.type) : false;
+  const list = cat.filter(f => applies(f) || made.some(m => m.key === f.key));
+  const extra = cat.filter(f => f.types === null && !made.some(m => m.key === f.key));
+  const col = st => /complet|approv|submit|closed/.test(st) ? 'var(--run)' : /return|reject/.test(st) ? 'var(--forced)' : 'var(--planned)';
+  const row = f => { const m = made.find(x => x.key === f.key);
+    return `<div class="srow" style="cursor:default"><div class="top"><span class="nm">${esc(f.label)} <span class="muted" style="font-weight:400">· ${esc(f.what)}</span></span>
+      <span class="badge" style="background:${m ? col(m.status) : 'var(--off)'};color:#fff">${m ? esc(m.status.replace(/_/g, ' ')) : 'to be prepared'}</span></div>
+      ${m ? `<div class="vals">${esc(m.no)}${m.by ? ' · prepared by ' + esc(m.by) : ''}${m.at ? ' · ' + esc(m.at) : ''}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${(m.chain || []).map(c => `<span class="src-tag" style="margin:0;border-color:${col(c.status)};color:${col(c.status)}" title="${esc([c.name, c.at, c.remarks].filter(Boolean).join(' · '))}">${esc(c.step)}: ${esc(c.status)}${c.name ? ' · ' + esc(c.name) : ''}</span>`).join('')}</div>` : ''}</div>`; };
+  return `<div class="card"><h2>Statutory forms ${conMore('from SIMS')}</h2>${list.map(row).join('') || conEmpty('No statutory form applies to this incident type.')}
+    ${extra.length ? `<div class="note-src">Also where applicable: ${extra.map(f => esc(f.label + ' (' + f.what + ')')).join('; ')}.</div>` : ''}
+    <div class="note-src">Forms are prepared and approved in the SIMS portal${Y.data.sims && Y.data.sims.portal ? ` (<a href="${esc(Y.data.sims.portal)}" target="_blank" rel="noopener" style="color:var(--accent)">open SIMS</a>)` : ''}; this shows where each stands.</div></div>`;
+}
+
+/** A permit's approval stages as SIMS has them. */
+function ySimsStages(p) {
+  let st = []; try { st = (JSON.parse(p.sims_extra || '{}').stages) || []; } catch (e) { st = []; }
+  if (!st.length) return '';
+  const col = x => /approv|complet|issued/.test(x) ? 'var(--run)' : /reject|return/.test(x) ? 'var(--forced)' : 'var(--planned)';
+  return `<div class="card"><h2>Approval in SIMS</h2>${st.map((x, i) => `<div class="srow" style="cursor:default"><div class="top"><span class="nm">${i + 1}. ${esc(x.step)}</span>
+    <span class="badge" style="background:${col(x.status)};color:#fff">${esc(x.status || 'pending')}</span></div>
+    <div class="vals">${esc([x.name, x.at, x.remarks].filter(Boolean).join(' · ')) || 'waiting'}</div></div>`).join('')}</div>`;
+}
+
+/** The approval chain SIMS uses for permits at a station (from its workflow templates). */
+function ySimsFlow(st) {
+  const f = (Y.data.sims_flows || []).filter(x => x.form === 'permit' && (!x.station || !st || x.station === st));
+  if (!f.length) return '';
+  return `<div class="note-src" style="margin-top:6px">SIMS approval chain${st ? ' at ' + esc(st) : ''}: ${f.map(x => (x.department ? esc(x.department) + ': ' : '') + x.stages.map(s => esc(s.label)).join(' → ')).join('; ')}</div>`;
+}
+
 function yTabPtw() {
   const all = Y.data.permits.filter(r => !Y.f.station || r.station === Y.f.station);
   const waiting = all.filter(p => p.status === 'requested' && yStageOk(p, p.stage || 1));
@@ -155,7 +212,7 @@ function yTabPtw() {
   const list = all.filter(p => f === 'all' || (f === 'open' ? !done.includes(p.status) : f === 'todo' ? waiting.includes(p) : f === 'mine' ? yMine(p, 'requested_by') : done.includes(p.status)));
   return `<div class="card"><h2>Permit to work ${conMore(yAll('ptw') ? 'all stations' : yStationName(yMe().station))}</h2><div class="tstats" style="grid-template-columns:repeat(3,1fr)">
       ${yStat('Awaiting you', waiting.length, waiting.length ? 'neg' : '')}${yStat('Work in progress', active.length)}${yStat('Issued, not started', issued.length)}</div>
-      <div style="margin-top:10px">${yBtn('Request a permit', 'new', 'ptw', true)}</div></div>
+      ${ySims() ? ySimsNote() + ySimsFlow(Y.f.station || (yMe().station !== 'CO' ? yMe().station : '')) : `<div style="margin-top:10px">${yBtn('Request a permit', 'new', 'ptw', true)}</div>`}</div>
     ${yStationFilter('ptw')}${yChips('ptw', [['open', 'Open'], ['todo', 'To approve', waiting.length], ['mine', 'Mine'], ['closed', 'Closed'], ['all', 'All']])}
     ${list.map(p => `<div class="oq" style="--oc:${p.status === 'active' ? 'var(--forced)' : p.status === 'approved' ? 'var(--rsd)' : p.status === 'requested' ? 'var(--planned)' : 'var(--line)'}" data-yact="open" data-yarg="ptw|${p.id}">
       <div class="oq-h"><span class="nm">${esc(p.permit_type)}</span>${yBadge(p.status)}<span class="cap num">${esc(p.station)}</span></div>
@@ -261,15 +318,23 @@ function yEmpInput(id, station) {
     <datalist id="${id}_l">${people.slice(0, 400).map(e => `<option value="${esc(e.emp_no)} — ${esc(conName(e.full_name))}${e.designation ? ', ' + esc(e.designation) : ''}"></option>`).join('')}</datalist>`;
 }
 
+/** The AI's reading of a report (Google Gemini on the GSECL Connect service): category, level, likely root cause, English, repeats. */
+function yAiCard(r, levelLabel) {
+  const a = r.ai; if (!a) return '';
+  return `<div class="card" style="border-left:4px solid #7c3aed"><h2>AI suggestion ${conMore('Google Gemini · check before use')}</h2>
+    <div class="oq" style="box-shadow:none;padding:0;margin:0;border:0"><div class="meta num">${yRow('Category', esc(a.category))}${yRow(levelLabel, esc(a.level))}</div></div>
+    ${yLong('Likely root cause', a.root_cause)}${yLong('In English', a.english)}${a.repeat ? yLong('Seen before at the station', a.repeat) : ''}</div>`;
+}
+
 function yDetailObs(r) {
   const editor = yCan('obs', 'edit'), assignee = yMine(r, 'assigned_to'), open = r.status !== 'completed';
   let h = `<div class="card"><div style="display:flex;align-items:center;gap:8px"><div style="font-size:17px;font-weight:700;flex:1">${esc(r.obs_type)} · ${esc(r.category)}</div>${yBadge(r.status)}</div>
-    <div class="muted" style="font-size:12.5px">${esc(r.obs_no)} · reported by ${esc(r.reported_by_name || '—')} on ${yWhen(r.reported_at)}</div>
+    <div class="muted" style="font-size:12.5px">${esc(r.obs_no)} ${ySimsTag(r)} · reported by ${esc(r.reported_by_name || '—')} on ${yWhen(r.reported_at)}</div>
     <p style="white-space:pre-wrap;margin:12px 0 0">${esc(r.description)}</p>${yFiles(r.attachments, 'obs', r.id, r.status !== 'completed' && (yCan('obs', 'edit') || yMine(r, 'reported_by') || yMine(r, 'assigned_to')))}
     <div class="oq" style="box-shadow:none;padding:0;margin:12px 0 0;border:0"><div class="meta num">
-      ${yRow('Station', esc(yStationName(r.station)))}${yRow('Location', esc(r.location))}${yRow('Priority', `<b style="color:${Y_PRIORITY[r.priority] || 'inherit'}">${esc(r.priority)}</b>`)}
+      ${yRow('Station', esc(yStationName(r.station)))}${yRow('Department › area', esc(ySimsPlace(r)))}${yRow('Location', esc(r.location))}${yRow('Priority', `<b style="color:${Y_PRIORITY[r.priority] || 'inherit'}">${esc(r.priority)}</b>`)}
       ${yRow('Target date', r.target_date ? conDate(r.target_date) : '')}${yRow('Assigned to', esc(r.assigned_name || ''))}${yRow('Assigned on', r.assigned_at ? yWhen(r.assigned_at) : '')}
-      ${yRow('Closed by', r.closed_by ? esc(r.closed_by) + ' · ' + yWhen(r.closed_at) : '')}</div></div>${yLong('Action taken', r.action_taken)}</div>`;
+      ${yRow('Closed by', r.closed_by ? esc(r.closed_by) + ' · ' + yWhen(r.closed_at) : '')}</div></div>${yLong('Action taken', r.action_taken)}</div>${yAiCard(r, 'Priority')}`;
   if (Y.act === 'assign') h += yActForm('Assign', [{k: 'assigned_to', label: 'Assign to (employee number)', type: 'emp', station: r.station}, {k: 'target_date', label: 'Target date', type: 'date', value: r.target_date || ''}], 'obs_assign');
   else if (Y.act === 'complete') h += yActForm('Close the observation', [{k: 'action_taken', label: 'Action taken', type: 'area'}], 'obs_complete', 'var(--run)');
   else h += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${[
@@ -285,13 +350,13 @@ function yDetailInc(r) {
   const due = (label, at, sent, act) => !at ? '' : `<div class="srow" style="cursor:default"><div class="top"><span class="nm">${label}</span><span class="vals num">${sent ? `<span class="badge b-Running">Sent ${yWhen(sent)}</span>` : yLate(at, sent) ? '<span class="badge b-Forced">Overdue</span>' : '<span class="badge b-Planned">Due</span>'}</span></div>
     <div class="vals">Due by ${yWhen(at)}${!sent && editor ? ` · <a data-yact="do" data-yarg="${act}" style="color:var(--accent)">Mark as sent</a>` : ''}</div></div>`;
   let h = `<div class="card"><div style="display:flex;align-items:center;gap:8px"><div style="font-size:17px;font-weight:700;flex:1">${esc(r.type)}</div>${yBadge(r.status)}</div>
-    <div class="muted" style="font-size:12.5px">${esc(r.incident_no)} · reported by ${esc(r.reported_by_name || '—')} on ${yWhen(r.reported_at)}</div>
+    <div class="muted" style="font-size:12.5px">${esc(r.incident_no)} ${ySimsTag(r)} · reported by ${esc(r.reported_by_name || '—')} on ${yWhen(r.reported_at)}</div>
     <p style="white-space:pre-wrap;margin:12px 0 0">${esc(r.description)}</p>${yFiles(r.attachments, 'inc', r.id, r.status !== 'closed' && (yCan('inc', 'edit') || yMine(r, 'reported_by') || yMine(r, 'investigator')))}
     <div class="oq" style="box-shadow:none;padding:0;margin:12px 0 0;border:0"><div class="meta num">
-      ${yRow('When', yWhen(r.incident_time))}${yRow('Station', esc(yStationName(r.station)))}${yRow('Location', esc(r.location))}${yRow('Severity', esc(r.severity || ''))}
+      ${yRow('When', yWhen(r.incident_time))}${yRow('Station', esc(yStationName(r.station)))}${yRow('Department › area', esc(ySimsPlace(r)))}${yRow('Location', esc(r.location))}${yRow('Severity', esc(r.severity || ''))}
       ${yRow('Injured person', esc([r.injured_person_name, r.injured_person_dept].filter(Boolean).join(', ')))}${yRow('Days lost', r.days_lost ? fmt(r.days_lost) : '')}
       ${yRow('Investigator', esc(r.investigator_name || ''))}${yRow('Closed on', r.closed_at ? yWhen(r.closed_at) : '')}</div></div>
-      ${yLong('Immediate action', r.immediate_action)}${yLong('Root cause', r.root_cause)}${yLong('Corrective and preventive actions', r.corrective_actions)}</div>`;
+      ${yLong('Immediate action', r.immediate_action)}${yLong('Root cause', r.root_cause)}${yLong('Corrective and preventive actions', r.corrective_actions)}</div>${ySimsForms(r)}${yAiCard(r, 'Severity')}`;
   if (sla) h += `<div class="card"><h2>Reporting deadlines</h2><div class="note-src" style="margin:0 0 6px">${esc(sla.label)} — to ${esc(sla.officers)}</div>
     ${due('Flash report', r.flash_due_at, r.flash_sent_at, 'inc_flash')}${due('Detailed report', r.detailed_due_at, r.detailed_sent_at, 'inc_detailed')}</div>`;
   if (Y.act === 'investigate') h += yActForm('Assign investigator', [{k: 'investigator', label: 'Investigator (employee number)', type: 'emp', station: ''}], 'inc_investigate');
@@ -327,6 +392,7 @@ function yDetailPtw(p) {
   else if (Y.act === 'reject') h += yActForm('Reject', [{k: 'remarks', label: 'Reason for rejecting', type: 'area'}], 'ptw_reject', 'var(--forced)');
   else if (Y.act === 'extend') h += yActForm('Extend the permit', [{k: 'end_time', label: 'New end', type: 'datetime-local', value: String(p.end_time || '').replace(' ', 'T')}, {k: 'remarks', label: 'Reason', type: 'area'}], 'ptw_extend');
   else if (Y.act === 'closep') h += yActForm('Close the permit', [{k: 'remarks', label: 'Work completed, area cleared (remarks)', type: 'area'}], 'ptw_close', 'var(--run)');
+  else if (ySims()) h += ySimsStages(p) + `<div class="card">${ySimsNote()}</div>`;
   else h += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${[
     p.status === 'requested' && yStageOk(p, stage) ? yBtn('Approve', 'act', 'approve', true, 'var(--run)') + yBtn('Reject', 'act', 'reject') : '',
     p.status === 'approved' && (me || de) ? yBtn('Start work', 'do', 'ptw_activate', true) : '',
@@ -340,16 +406,18 @@ function yDetailPtw(p) {
 // ---------------------------------------------------------------- forms
 
 function yFields(kind, r) {
+  const tree = Y.data.sims_tree && (kind === 'obs' || kind === 'inc'), stNow = r.station || (yMe().station !== 'CO' ? yMe().station : '');
+  const area = tree ? [{k: 'sims_area', label: 'Department › area (as in SIMS)', type: 'select', options: ySimsAreas(stNow), value: r.sims_area || ''}] : [];
   const m = Y.data.masters, st = yAll(kind) ? [{k: 'station', label: 'Station', type: 'select', options: [['', 'Choose…']].concat(Y.data.stations.map(s => [s.short_name, s.short_name + ' – ' + s.name])), value: r.station || (yMe().station !== 'CO' ? yMe().station : '')}] : [];
   if (kind === 'obs') return [{k: 'obs_type', label: 'Type', type: 'select', options: m.obs_type, value: r.obs_type || 'Unsafe Condition'},
-    {k: 'category', label: 'Category', type: 'select', options: [''].concat(m.obs_category), value: r.category || ''}, ...st,
-    {k: 'location', label: 'Location (area, unit, equipment)', value: r.location}, {k: 'description', label: 'What did you observe?', type: 'area', rows: 5, value: r.description},
+    {k: 'category', label: 'Category', type: 'select', options: [''].concat(m.obs_category), value: r.category || ''}, ...st, ...area,
+    {k: 'location', label: tree ? 'Exact spot / equipment (optional)' : 'Location (area, unit, equipment)', value: r.location}, {k: 'description', label: 'What did you observe?', type: 'area', rows: 5, value: r.description},
     {k: 'priority', label: 'Priority', type: 'select', options: m.priority, value: r.priority || 'medium'}, {k: 'target_date', label: 'Target date for correction (optional)', type: 'date', value: r.target_date || ''},
     {k: 'files', label: 'Photos and documents (up to 10)', type: 'files'}];
   if (kind === 'inc') return [{k: 'type', label: 'Type of incident', type: 'select', options: [''].concat(m.incident_type), value: r.type || ''},
     {k: 'severity', label: 'Severity', type: 'select', options: [''].concat(m.severity), value: r.severity || ''}, ...st,
     {k: 'incident_time', label: 'Date and time of the incident', type: 'datetime-local', value: r.incident_time ? r.incident_time.replace(' ', 'T') : yNow()},
-    {k: 'location', label: 'Location', value: r.location}, {k: 'description', label: 'What happened?', type: 'area', rows: 5, value: r.description},
+    ...area, {k: 'location', label: tree ? 'Exact spot / equipment (optional)' : 'Location', value: r.location}, {k: 'description', label: 'What happened?', type: 'area', rows: 5, value: r.description},
     {k: 'injured_person_name', label: 'Injured person (if any)', value: r.injured_person_name}, {k: 'injured_person_dept', label: 'Department / contractor of the injured person', value: r.injured_person_dept},
     {k: 'days_lost', label: 'Days lost', type: 'number', value: r.days_lost ?? 0}, {k: 'immediate_action', label: 'Immediate action taken', type: 'area', rows: 3, value: r.immediate_action},
     {k: 'files', label: 'Photos and documents (up to 10)', type: 'files'}];
@@ -524,6 +592,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   if (e.target.dataset?.ysel === 'station') { Y.f.station = e.target.value; return yRender(); }
   if (e.target.id === 'yf_type') ySlaHint();
+  if (e.target.id === 'yf_station' && $('yf_sims_area')) $('yf_sims_area').innerHTML = ySimsAreas(e.target.value).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
   if ((e.target.id === 'yCam' || e.target.id === 'yPick') && e.target.files.length) {
     Y.picked = (Y.picked || []).concat([...e.target.files]);
     if (Y.picked.length > Y_MAX_FILES) { alert('At most ' + Y_MAX_FILES + ' files; the first ' + Y_MAX_FILES + ' are kept.'); Y.picked = Y.picked.slice(0, Y_MAX_FILES); }
