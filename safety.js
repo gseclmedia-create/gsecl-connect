@@ -229,7 +229,8 @@ const yUntil = () => (Y.f.period === 'custom' && Y.f.to ? Y.f.to : '9999-12-31')
 const ySince = () => (Y.f.period === 'custom' && Y.f.from ? Y.f.from : Y.f.period === 'fy' ? yFyStart() : (() => { const d = new Date(Date.now() - (+Y.f.period || 365) * 864e5); return d.toISOString().slice(0, 10); })());
 const yMon = iso => `${CON_MON[+iso.slice(5, 7) - 1]} ${iso.slice(2, 4)}`;
 /** Horizontal bars with the count written beside each. rows: [[label, n, colour]] */
-const yCountBars = (rows, colour) => { const max = Math.max(1, ...rows.map(r => r[1]));
+const yCountBars = (rows, colour) => { if (typeof vzBars === 'function') return rows.length ? vzBars(rows.map(([l, n, c]) => ({k: l, v: n, c: c || colour}))) : conEmpty('Nothing in this period.');
+  const max = Math.max(1, ...rows.map(r => r[1]));
   return rows.map(([l, n, c]) => `<div class="srow" style="cursor:default"><div class="top"><span class="nm">${esc(l)}</span><span class="vals num"><b style="color:var(--ink)">${n}</b></span></div>
     <div style="height:9px;margin-top:5px;border-radius:3px;width:${Math.max(n ? 2 : 0, n / max * 100)}%;background:${c || colour}"></div></div>`).join('') || conEmpty('Nothing in this period.'); };
 
@@ -253,6 +254,14 @@ function yTabDash() {
       <label style="font-size:11px;color:var(--muted)">To<input class="search" id="yTo" type="date" value="${esc(Y.f.to || new Date().toISOString().slice(0, 10))}" style="margin:2px 0 0;padding:8px"></label>
       <button class="btn" data-yact="papply" style="background:var(--accent);color:#fff;border-color:var(--accent);margin:0">Show</button></div>` : '')
     + (stations.length > 1 && (yAll('obs') || yAll('inc') || yAll('ptw')) ? `<select class="search" data-ysel="station" style="margin:0 0 8px"><option value="">All stations</option>${stations.map(s => `<option ${st === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>` : '');
+  if (typeof vzRing === 'function') {
+    const obsC = obsP.filter(r => r.status === 'completed').length, incC = incP.filter(r => r.status === 'closed').length;
+    h += `<div class="pj-hero"><h3>Safety ${st ? 'at ' + esc(yStationName(st)) : yAll('inc') || yAll('obs') ? 'across GSECL' : 'at ' + esc(yStationName(yMe().station))}</h3><div class="pj-sub">${esc(Y_PERIODS.find(p => p[0] === (Y.f.period || '365'))[1])}</div>
+      <div class="vz-rings">${can('inc') ? vzRing(ltiDays === null ? 100 : Math.min(100, ltiDays / 365 * 100), {text: ltiDays === null ? '—' : fmt(ltiDays), label: 'Days without LTI', sub: 'goal 365', color: ltiDays !== null && ltiDays < 30 ? '#fb7185' : '#4ade80', size: 88}) : ''}
+        ${can('obs') ? vzRing(obsP.length ? obsC / obsP.length * 100 : 0, {label: 'Observations closed', sub: obsC + ' of ' + obsP.length, color: '#60a5fa', size: 88}) : ''}
+        ${can('inc') ? vzRing(incP.length ? incC / incP.length * 100 : 0, {label: 'Incidents closed', sub: incC + ' of ' + incP.length, color: '#fbbf24', size: 88}) : ''}
+        ${can('ptw') ? vzRing(ptwP.length ? ptwP.filter(p => ['closed', 'cancelled', 'rejected'].includes(p.status)).length / ptwP.length * 100 : 0, {label: 'Permits closed', sub: ptw.filter(p => p.status === 'active').length + ' active', color: '#a78bfa', size: 88}) : ''}</div></div>`;
+  }
   h += `<div class="card"><h2>Safety at a glance ${conMore(st ? yStationName(st) : yAll('inc') || yAll('obs') ? 'all stations' : yStationName(yMe().station))}</h2>
     <div class="tstats" style="grid-template-columns:repeat(3,1fr)">
       ${can('inc') ? yStat('Days without LTI', ltiDays === null ? '—' : fmt(ltiDays), ltiDays !== null && ltiDays < 30 ? 'neg' : 'pos', lti ? 'since ' + conDate(lti) : 'none on record') : ''}
@@ -273,7 +282,7 @@ function yTabDash() {
     const sev = {}; incP.forEach(r => { sev[r.severity || 'Not set'] = (sev[r.severity || 'Not set'] || 0) + 1; });
     const sevCol = {Critical: 'var(--forced)', Major: 'var(--coal)', Moderate: 'var(--planned)', Minor: 'var(--run)', 'Not set': 'var(--off)'};
     h += `<div class="card"><h2>Incidents by type</h2>${yCountBars(Object.entries(types).sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, n]), 'var(--forced)')}</div>
-      <div class="card"><h2>Incidents by severity</h2>${yCountBars(['Critical', 'Major', 'Moderate', 'Minor', 'Not set'].filter(k => sev[k]).map(k => [k, sev[k], sevCol[k]]))}
+      <div class="card"><h2>Incidents by severity</h2>${typeof vzDonut === 'function' ? vzDonut(['Critical', 'Major', 'Moderate', 'Minor', 'Not set'].filter(k => sev[k]).map(k => ({k, n: sev[k], c: {Critical: '#be123c', Major: '#ea580c', Moderate: '#d97706', Minor: '#15803d', 'Not set': '#94a3b8'}[k]})), {label: 'incidents', size: 104, stroke: 15, empty: 'No incident in this period.'}) : yCountBars(['Critical', 'Major', 'Moderate', 'Minor', 'Not set'].filter(k => sev[k]).map(k => [k, sev[k], sevCol[k]]))}
       <div class="note-src">Days lost in the period: <b>${fmt(incP.reduce((t, r) => t + (r.days_lost || 0), 0))}</b>.</div></div>`;
   }
   if (can('obs')) {
@@ -288,6 +297,8 @@ function yTabDash() {
   }
   // Station-wise, as the portal's plant table.
   if (!st && stations.length > 1) {
+    if (typeof vzStack === 'function') h += `<div class="card"><h2>Station-wise records</h2>${vzStack(stations.map(s => ({k: s, act: `data-yact="dstation" data-yarg="${esc(s)}"`, parts: [can('inc') ? incP.filter(r => r.station === s).length : 0, can('obs') ? obsP.filter(r => r.station === s).length : 0, can('ptw') ? ptwP.filter(r => r.station === s).length : 0]})).sort((a, b) => b.parts.reduce((t, n) => t + n, 0) - a.parts.reduce((t, n) => t + n, 0)),
+      [{k: 'Incidents', c: '#be123c'}, {k: 'Observations', c: '#1d4ed8'}, {k: 'Permits', c: '#0f766e'}])}</div>`;
     h += `<div class="card"><h2>Station-wise ${conMore('touch a station')}</h2><div style="overflow-x:auto"><table class="dt num"><tr><th>Station</th>${can('inc') ? '<th>Incidents</th>' : ''}${can('obs') ? '<th>Obs.</th><th>Open</th>' : ''}${can('ptw') ? '<th>Permits</th>' : ''}</tr>
       ${stations.map(s => `<tr data-yact="dstation" data-yarg="${esc(s)}"><td>${esc(s)}</td>${can('inc') ? `<td>${incP.filter(r => r.station === s).length}</td>` : ''}${can('obs') ? `<td>${obsP.filter(r => r.station === s).length}</td><td>${obs.filter(r => r.station === s && r.status !== 'completed').length}</td>` : ''}${can('ptw') ? `<td>${ptwP.filter(r => r.station === s).length}</td>` : ''}</tr>`).join('')}</table></div></div>`;
   }

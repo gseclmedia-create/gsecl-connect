@@ -70,17 +70,14 @@
     return d;
   })();
   const deviceName = (() => { const u = navigator.userAgent; const m = /iPhone|iPad|Android|Macintosh|Windows/.exec(u); return ((m ? (m[0] === 'Macintosh' ? 'Mac' : m[0]) : 'Browser') + ' (web)').slice(0, 60); })();
-  // The sign-in lives only in this tab (sessionStorage): closing the tab ends it, and every visit starts with the
-  // password and a fresh e-mailed code (the service also ends a web sign-in after 30 minutes without use).
-  const TAB = { get: k => { try { return sessionStorage.getItem('gcs:' + k); } catch (e) { return TAB.mem[k] ?? null; } },
-    set: (k, v) => { TAB.mem[k] = v; try { sessionStorage.setItem('gcs:' + k, v); } catch (e) { /* this page only */ } },
-    del: k => { delete TAB.mem[k]; try { sessionStorage.removeItem('gcs:' + k); } catch (e) { /* none */ } }, mem: {} };
-  ['token', 'user', 'otp_at'].forEach(k => SS.del(k));          // a sign-in kept by an earlier version of this page
+  // The sign-in is kept in this browser's encrypted store (SS) for up to a week, like the phone app: the e-mailed code is
+  // asked again after OTP_DAYS (the service checks it too) and the sign-in lapses after 7 days without use. Sign out ends it.
+  const TAB = { get: k => SS.get('sess:' + k), set: (k, v) => SS.set('sess:' + k, v), del: k => SS.del('sess:' + k) };
   const Session = {
     get token() { return TAB.get('token'); },
     get user() { try { return JSON.parse(TAB.get('user') || 'null'); } catch (e) { return null; } },
     get isLoggedIn() { return !!(this.token && this.user); },
-    get otpFresh() { return Number(TAB.get('otp_at') || 0) > 0; },
+    get otpFresh() { const t = Number(TAB.get('otp_at') || 0); return t > 0 && Date.now() - t < OTP_DAYS * 864e5; },
     get mustChange() { return !!(this.user && this.user.must_change_password); },
     signIn(token, user, verified) { TAB.set('token', token); TAB.set('user', JSON.stringify(user)); TAB.set('otp_at', verified ? String(Date.now()) : '0'); },
     renew(t) { if (this.token) TAB.set('token', t); },
@@ -256,7 +253,14 @@
   window.Native = {
     account() { return JSON.stringify(Session.user || {}); },
     jsError(m) { console.error('Page script error:', m); },
-    logout() { Session.signOut(true); location.reload(); },
+    logout() {
+      // the service is told first, so this browser's sign-in stops working there too (a copied token included)
+      try {
+        if (Session.token && CFG.scriptUrl) navigator.sendBeacon(CFG.scriptUrl, new Blob([JSON.stringify({ action: 'logout', token: Session.token, device_id: deviceId,
+          device_name: deviceName, app_kind: 'web', app_ver: CFG.version || '' })], { type: 'text/plain;charset=utf-8' }));
+      } catch (e) { /* signed out here all the same */ }
+      Session.signOut(true); location.reload();
+    },
     changePassword() { if (window.webLogin) window.webLogin.change(); },
     isSystemDark() { return !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches); },
     setBars(status) { let m = document.querySelector('meta[name=theme-color]'); if (!m) { m = document.createElement('meta'); m.name = 'theme-color'; document.head.appendChild(m); } m.content = status; },

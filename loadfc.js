@@ -3,7 +3,13 @@
 // Forecast, block by block (96 blocks of 15 minutes), from the daily load profiles the service keeps (LoadProfile tab,
 // the same for every device) and the Open-Meteo temperature forecast for Ahmedabad, Surat, Vadodara and Rajkot:
 //   1. similar days: the same weekday of the last weeks (Sundays and holidays together; Saturdays apart), median per block;
-//   2. weather: + (temperature of the day − temperature of those similar days) × the MW-per-°C learnt from the history;
+//      only ordinary days: festivals, industry vacations and other special days are left out of every reference;
+//   1a. special days (AI, Google Gemini, from the calendar, industry vacations, farm season and the weather outlook, or
+//      AppSettings SPECIAL_DAYS): the weekday's ordinary forecast × the day's factor, the Sunday shape blended in the
+//      deeper it falls, evening / night changed for garba nights and the like; each is measured after the day;
+//   2. weather: hour by hour, feels-like temperature, rain of the last 24 h and sunshine (rooftop solar) against the
+//      similar days, effects learnt from the history per hour group, used when its back-test is better; otherwise
+//      + (temperature of the day − temperature of those similar days) × the MW-per-°C learnt from the history;
 //   3. level: the last 3 days against their own similar days (half of the difference, at most ±8 %);
 //   4. band: the errors of the same method on the last 14 days (back-test) give an 80 % range per block;
 //   5. fine-tuning: every day's forecast as it stood when the day began is kept by the service (ForecastLog); against what
@@ -25,24 +31,174 @@ const lfMean = a => { const v = a.filter(x => x !== null && x !== undefined && i
 
 /** 'H' Sunday or holiday, 'S' Saturday, 'W' other working days. */
 function lfType(iso, hol) { return hol.has(iso) || lfDow(iso) === 0 ? 'H' : lfDow(iso) === 6 ? 'S' : 'W'; }
+/** The day type from the weekday alone (a special day is forecast from ordinary days of its weekday). */
+const lfTypeN = iso => (lfDow(iso) === 0 ? 'H' : lfDow(iso) === 6 ? 'S' : 'W');
 /** A day with most blocks read. */
 const lfFull = d => d && d.c && d.c.filter(v => v !== null).length >= 80;
 
 /**
- * Forecast of one day from the days before it. days: {iso: {c: [96]}}, hol: Set, temp: {iso: °C mean} (may be empty),
- * opt: {type (override), dT (°C added)}. Returns {fc: [96], type, sim: [iso], tT, tSim, slope, level} or null.
+ * The holiday set of a load_profile / discom_data answer, with the special days as .sp: {iso: {ai, real, eve, name,
+ * kind, why}}; ai = the factor expected before the day (AI, or AppSettings SPECIAL_DAYS), real = the factor measured
+ * after it (daily energy against ordinary days of the same weekday).
+ */
+function lfHolOf(data) {
+  const h = new Set((data && data.holidays) || []), ok = v => (v === null || v === undefined || v === '' ? null : isFinite(+v) && +v >= 0.4 && +v <= 1.25 ? +v : null);
+  h.sp = {};
+  ((data && data.special) || []).forEach(d => {
+    const ai = ok(d.factor), real = ok(d.real);
+    if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d.date) || (ai === null && real === null)) return;
+    h.sp[d.date] = {ai, real, eve: Math.max(-10, Math.min(10, Number(d.eve) || 0)), name: String(d.name || ''), kind: String(d.kind || ''), why: String(d.effect || '')};
+  });
+  return h;
+}
+/** Factor of a past day used as a reference (measured if known), 1 for ordinary days. */
+const lfRefF = (iso, hol) => { const s = hol && hol.sp && hol.sp[iso]; const f = s ? (s.real ?? s.ai) : null; return f === null || f === undefined ? 1 : f; };
+/** A day that is not ordinary (4 % or more off): kept out of the similar days and the weather model. */
+const lfOdd = (iso, hol) => Math.abs(lfRefF(iso, hol) - 1) >= 0.04;
+/** The special day being forecast: the factor known before it (AI / manual; measured only when there is no other). */
+function lfSpT(iso, hol) { const s = hol && hol.sp && hol.sp[iso]; if (!s) return null; const f = s.ai ?? s.real; return f === null || f === undefined ? null : Object.assign({f}, s); }
+
+/** Factor seen on a full past day, measured here: its mean against the median of ordinary days of its weekday, 5 weeks before. */
+function lfRealOf(iso, days, hol) {
+  if (!lfFull(days[iso])) return null;
+  const refs = [];
+  for (let k = 7; k <= 35; k += 7) { const r = lfAdd(iso, -k); if (lfFull(days[r]) && !lfOdd(r, hol) && !hol.has(r)) refs.push(lfMean(days[r].c)); }
+  return refs.length >= 2 ? lfMean(days[iso].c) / lfMed(refs) : null;
+}
+/**
+ * Inside a special period (the target or one of the 2 days before it special): how the last days really ran against
+ * what was expected for them (AI factor, 1 for an ordinary day), from the 3 days before and today so far. A Diwali
+ * week deeper than the AI said, or vacation days it did not list, then correct the next day. Median, 0.75 to 1.25; null
+ * outside a period or without evidence.
+ */
+function lfPeriodCal(target, days, hol, temp, sp) {
+  const prev = [1, 2, 3].map(k => lfAdd(target, -k));
+  if (!sp && !prev.slice(0, 2).some(d => lfSpT(d, hol))) return null;
+  const ev = [];
+  prev.forEach(d => {
+    const exp = (lfSpT(d, hol) || {f: 1}).f;
+    if (lfFull(days[d])) { const real = lfRealOf(d, days, hol); if (real) ev.push({d, r: real / exp}); return; }
+    const c = days[d] && days[d].c;
+    if (!c || c.filter(v => v !== null).length < 16) return;
+    const f0 = lfForecast(d, days, hol, temp, {noCal: true});          // today so far against today's own forecast
+    if (!f0) return;
+    let a = 0, q = 0;
+    c.forEach((v, b) => { if (v !== null && f0.fc[b]) { a += v; q += f0.fc[b]; } });
+    if (q) ev.push({d, r: a / q, part: true});
+  });
+  if (!ev.length) return null;
+  return {f: Math.max(0.75, Math.min(1.25, lfMed(ev.map(x => x.r)))), ev};
+}
+
+/** Up to 4 similar days before `target` from `pool` (newest first). */
+function lfSims(target, pool, hol, type) {
+  const before = pool.filter(d => d < target);
+  let sim = before.filter(d => lfType(d, hol) === type && (type !== 'W' || lfDow(d) === lfDow(target))).slice(0, 4);
+  if (sim.length < 2) sim = before.filter(d => lfType(d, hol) === type).slice(0, 4);
+  if (sim.length < 2 && type !== 'W') sim = before.filter(d => lfType(d, hol) !== 'W').slice(0, 4);
+  if (sim.length < 2) sim = before.slice(0, 4);
+  return sim;
+}
+const lfBase = (sim, days) => { const b = Array.from({length: 96}, (_, i) => lfMed(sim.map(d => days[d].c[i]))); return b.map((v, i) => (v !== null ? v : lfMean([b[i - 1], b[i + 1]]))); };
+const lfHourly = c => Array.from({length: 24}, (_, h) => lfMean(c.slice(h * 4, h * 4 + 4)));
+
+// ---- weather hour by hour: feels-like temperature (heat and humidity), rain of the last 24 hours (farm pumps stop,
+// cooling falls) and sunshine (rooftop solar lowers the grid demand by day). wx: {iso: {a: [24] °C, p: [24] mm, r: [24] W/m²}}.
+const LF_WX_GROUPS = [[0, 5], [6, 9], [10, 15], [16, 18], [19, 23]];      // night, morning, solar hours, evening ramp, evening peak
+const lfWxG = h => LF_WX_GROUPS.findIndex(([a, b]) => h >= a && h <= b);
+function lfWxF(wx, iso, dT = 0) {
+  const w = wx && wx[iso]; if (!w || !w.a || w.a.filter(v => v !== null && v !== undefined).length < 20) return null;
+  const y = wx[lfAdd(iso, -1)], rain = (y && y.p ? y.p : new Array(24).fill(0)).concat(w.p || []).map(v => Number(v) || 0);
+  return Array.from({length: 24}, (_, h) => {
+    let s = 0; for (let k = h + 1; k <= h + 24; k++) s += rain[k] || 0;
+    const a = w.a[h]; return a === null || a === undefined ? null : [a + dT, Math.log1p(s), (Number(w.r && w.r[h]) || 0) / 100];
+  });
+}
+const lfWxMeanF = (wx, sims) => {
+  const fs = sims.map(d => lfWxF(wx, d)).filter(Boolean); if (!fs.length) return null;
+  return Array.from({length: 24}, (_, h) => { const v = fs.map(f => f[h]).filter(Boolean); return v.length ? [0, 1, 2].map(j => lfMean(v.map(x => x[j]))) : null; });
+};
+/** Solves (A) x = b for a small system (Gauss); null when singular. */
+function lfSolve(A, b) {
+  const n = b.length, M = A.map((r, i) => r.concat([b[i]]));
+  for (let i = 0; i < n; i++) {
+    let p = i; for (let k = i + 1; k < n; k++) if (Math.abs(M[k][i]) > Math.abs(M[p][i])) p = k;
+    if (Math.abs(M[p][i]) < 1e-9) return null;
+    [M[i], M[p]] = [M[p], M[i]];
+    for (let k = 0; k < n; k++) if (k !== i) { const q = M[k][i] / M[i][i]; for (let j = i; j <= n; j++) M[k][j] -= q * M[i][j]; }
+  }
+  return M.map((r, i) => r[n] / r[i]);
+}
+/**
+ * The weather model learnt from the ordinary days before `target`: for each hour group, the load's change against its
+ * own similar days explained by the changes of the three weather values (ridge regression). {beta: [group][3], n} or null.
+ */
+function lfWxModel(target, days, hol, wx, pool) {
+  const train = pool.filter(d => d < target && wx[d]).slice(0, 56), X = LF_WX_GROUPS.map(() => []), Y = LF_WX_GROUPS.map(() => []);
+  let n = 0;
+  train.forEach(d => {
+    const sims = lfSims(d, pool, hol, lfType(d, hol)).filter(s => wx[s]); if (sims.length < 2) return;
+    const fd = lfWxF(wx, d), fs = lfWxMeanF(wx, sims); if (!fd || !fs) return;
+    const hl = lfHourly(days[d].c), hb = lfHourly(lfBase(sims, days)); n++;
+    for (let h = 0; h < 24; h++) {
+      if (!fd[h] || !fs[h] || !hl[h] || !hb[h]) continue;
+      const g = lfWxG(h); X[g].push([0, 1, 2].map(j => fd[h][j] - fs[h][j])); Y[g].push(hl[h] / hb[h] - 1);
+    }
+  });
+  if (n < 15) return null;
+  const beta = X.map((xs, g) => {
+    if (xs.length < 40) return [0, 0, 0];
+    const mx = [0, 1, 2].map(j => lfMean(xs.map(x => x[j]))), my = lfMean(Y[g]);
+    const A = [0, 1, 2].map(i => [0, 1, 2].map(j => xs.reduce((t, x) => t + (x[i] - mx[i]) * (x[j] - mx[j]), 0)));
+    const b = [0, 1, 2].map(i => xs.reduce((t, x, k) => t + (x[i] - mx[i]) * (Y[g][k] - my), 0));
+    [0, 1, 2].forEach(i => { A[i][i] += 0.25 * A[i][i] + 1e-6; });       // ridge: shrinks each effect (noisy days)
+    const s = lfSolve(A, b); return s ? s.map(v => Math.max(-0.08, Math.min(0.08, v))) : [0, 0, 0];
+  });
+  return {beta, n};
+}
+/** Hourly factor [24] and the MW-share of each weather value [3][24] for `target` against `sims`. */
+function lfWxAdj(model, wx, target, sims, dT) {
+  const ft = lfWxF(wx, target, dT), fs = lfWxMeanF(wx, sims.filter(s => wx[s]));
+  if (!ft || !fs) return null;
+  const part = [[], [], []], f = Array.from({length: 24}, (_, h) => {
+    if (!ft[h] || !fs[h]) { [0, 1, 2].forEach(j => { part[j][h] = 0; }); return 1; }
+    const be = model.beta[lfWxG(h)], c = [0, 1, 2].map(j => be[j] * (ft[h][j] - fs[h][j]));
+    c.forEach((v, j) => { part[j][h] = v; });
+    return 1 + Math.max(-0.15, Math.min(0.15, c[0] + c[1] + c[2]));
+  });
+  return {f, part, d: [0, 1, 2].map(j => lfMean(ft.map((x, h) => (x && fs[h] ? x[j] - fs[h][j] : null))))};
+}
+/** Hourly values [24] spread over the 96 blocks (straight lines between the hour centres). */
+const lfToBlocks = f => Array.from({length: 96}, (_, b) => { const t = (b + 0.5) / 4 - 0.5, h = Math.max(0, Math.min(23, Math.floor(t))), k = Math.min(23, h + 1), u = Math.max(0, Math.min(1, t - h)); return f[h] * (1 - u) + f[k] * u; });
+
+/**
+ * Forecast of one day from the days before it. days: {iso: {c: [96]}}, hol: Set (with .sp, see lfHolOf), temp: {iso: °C
+ * mean} (may be empty), opt: {type (scenario override), dT (°C added), wx (hourly weather, see lfWxF)}.
+ * Returns {fc: [96], type, sim, tT, tSim, slope, level, scale, sp, wx} or null.
+ *   - the similar days are ordinary days: festivals, vacations and other special days are left out;
+ *   - a special day is its weekday's ordinary forecast × its factor, with a Sunday-like shape the deeper it falls;
+ *   - the weather term is the hourly model when opt.wx is given and learnt, else the daily MW per °C.
  */
 function lfForecast(target, days, hol, temp, opt = {}) {
-  const type = opt.type || lfType(target, hol), past = Object.keys(days).filter(d => d < target && lfFull(days[d])).sort().reverse();
-  let sim = past.filter(d => lfType(d, hol) === type && (type !== 'W' || lfDow(d) === lfDow(target))).slice(0, 4);
-  if (sim.length < 2) sim = past.filter(d => lfType(d, hol) === type).slice(0, 4);
-  if (sim.length < 2 && type !== 'W') sim = past.filter(d => lfType(d, hol) !== 'W').slice(0, 4);
-  if (sim.length < 2) sim = past.slice(0, 4);
+  const all = Object.keys(days).filter(d => d < target && lfFull(days[d])).sort().reverse();
+  const clean = all.filter(d => !lfOdd(d, hol)), past = clean.length >= 8 ? clean : all;
+  const sp = opt.type ? null : lfSpT(target, hol);
+  const type = opt.type || (sp ? lfTypeN(target) : lfType(target, hol));
+  const sim = lfSims(target, past, hol, type);
   if (!sim.length) return null;
-  const base = Array.from({length: 96}, (_, b) => lfMed(sim.map(d => days[d].c[b])));
-  const fill = base.map((v, b) => v !== null ? v : lfMean([base[b - 1], base[b + 1]]));
+  let fill = lfBase(sim, days);
   const mb = lfMean(fill);
-  // MW per °C: daily mean load against daily mean temperature, working days of the history (least squares)
+  if (sp && mb) {
+    // the deeper the fall, the more the day looks like a Sunday (offices and works closed): blend in the Sunday shape
+    const simH = sp.f < 0.95 ? lfSims(target, past, hol, 'H') : [], bH = simH.length ? lfBase(simH, days) : null, mH = bH ? lfMean(bH) : null;
+    const w = mH ? Math.max(0, Math.min(1, (1 - sp.f) / 0.25)) : 0;
+    fill = fill.map((v, b) => (v === null ? null : sp.f * mb * ((1 - w) * v / mb + (w ? w * ((bH[b] ?? v) / mH) : 0)) * (sp.eve && (b >= 76 || b < 16) ? 1 + sp.eve / 100 : 1)));
+  }
+  // a special period running deeper (or shallower) than expected corrects the next day
+  const cal = opt.type || opt.noCal ? null : lfPeriodCal(target, days, hol, temp, sp);
+  if (cal && Math.abs(cal.f - 1) >= 0.01) fill = fill.map(v => (v === null ? null : v * cal.f));
+  const mf = lfMean(fill);
+  // MW per °C: daily mean load against daily mean temperature, ordinary working days of the history (least squares)
   let slope = 0;
   const pts = past.filter(d => lfType(d, hol) === 'W' && temp[d] !== undefined).slice(0, 60).map(d => [temp[d], lfMean(days[d].c)]);
   if (pts.length >= 8) {
@@ -51,23 +207,27 @@ function lfForecast(target, days, hol, temp, opt = {}) {
     if (sxx > 2) slope = Math.max(0, Math.min(800, sxy / sxx));
   }
   const tSim = lfMean(sim.map(d => temp[d])), tT = temp[target] !== undefined ? temp[target] + (opt.dT || 0) : null;
-  const scale = slope && tT !== null && tSim !== null && mb ? 1 + slope * (tT - tSim) / mb : 1;
-  // level of the last 3 days against their own similar days
-  const ratios = past.slice(0, 3).map(d => {
-    const t = lfType(d, hol), s = past.filter(x => x < d && lfType(x, hol) === t).slice(0, 4);
+  let scale = slope && tT !== null && tSim !== null && mf ? 1 + slope * (tT - tSim) / mf : 1, wxr = null, wxf = null;
+  if (opt.wx && opt.wx[target]) {
+    const model = lfWxModel(target, days, hol, opt.wx, past), adj = model ? lfWxAdj(model, opt.wx, target, sim, opt.dT || 0) : null;
+    if (adj) { wxf = lfToBlocks(adj.f); scale = 1; wxr = {n: model.n, d: adj.d, mw: [0, 1, 2].map(j => lfMean(lfToBlocks(adj.part[j]).map((v, b) => (fill[b] === null ? null : v * fill[b]))))}; }
+  }
+  // level of the last 3 days against their own similar days (a special day against its expected share)
+  const ratios = all.slice(0, 3).map(d => {
+    const t = lfOdd(d, hol) ? lfTypeN(d) : lfType(d, hol), s = past.filter(x => x < d && lfType(x, hol) === t).slice(0, 4);
     const a = lfMean(days[d].c), b = s.length ? lfMean(s.map(x => lfMean(days[x].c))) : null;
-    return a && b ? a / b : null;
+    return a && b ? a / (b * lfRefF(d, hol)) : null;
   }).filter(Boolean);
-  const r = ratios.length ? lfMean(ratios) : 1, level = Math.max(0.92, Math.min(1.08, 1 + (r - 1) / 2));
-  return {fc: fill.map(v => (v === null ? null : v * scale * level)), type, sim, tT, tSim, slope, level, scale};
+  const r = ratios.length ? lfMean(ratios) : 1, level = cal ? 1 : Math.max(0.92, Math.min(1.08, 1 + (r - 1) / 2));   // the period correction already holds the recent level
+  return {fc: fill.map((v, b) => (v === null ? null : v * scale * level * (wxf ? wxf[b] : 1))), type, sim, tT, tSim, slope, level, scale, sp, wx: wxr, cal};
 }
 
-/** Back-test on the last `n` full days before `target`: {mape (%), sd: [96] (relative), n}. */
-function lfBacktest(target, days, hol, temp, n = 14) {
+/** Back-test on the last `n` full days before `target`: {mape (%), sd: [96] (relative), n}. opt is passed to lfForecast. */
+function lfBacktest(target, days, hol, temp, n = 14, opt = {}) {
   const tests = Object.keys(days).filter(d => d < target && lfFull(days[d])).sort().reverse().slice(0, n);
   const errs = Array.from({length: 96}, () => []), all = [];
   for (const d of tests) {
-    const f = lfForecast(d, days, hol, temp);
+    const f = lfForecast(d, days, hol, temp, opt);
     if (!f) continue;
     f.fc.forEach((v, b) => { const a = days[d].c[b]; if (v && a) { const e = (a - v) / v; errs[b].push(e); all.push(Math.abs(e)); } });
   }
@@ -102,7 +262,7 @@ async function lfLoad(force) {
 async function lfTemps() {
   if (LF.temp && Date.now() - LF.tempAt < 3 * 3600e3) return;
   const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + LF_CITIES.map(c => c[0]).join(',') + '&longitude=' + LF_CITIES.map(c => c[1]).join(',') +
-    '&daily=temperature_2m_mean,temperature_2m_max&past_days=92&forecast_days=3&timezone=Asia%2FKolkata';
+    '&daily=temperature_2m_mean,temperature_2m_max&hourly=apparent_temperature,precipitation,shortwave_radiation&past_days=92&forecast_days=3&timezone=Asia%2FKolkata';
   try {
     const res = await httpGet(url, 40);
     if (!res.ok) return;
@@ -112,7 +272,16 @@ async function lfTemps() {
       list.forEach((l, k) => { const v = l.daily.temperature_2m_mean[i], m = l.daily.temperature_2m_max[i]; if (v !== null && v !== undefined) { s += v * LF_CITIES[k][2]; sm += (m ?? v) * LF_CITIES[k][2]; w += LF_CITIES[k][2]; } });
       if (w) { t[iso] = s / w; tmax[iso] = sm / w; }
     });
-    LF.temp = t; LF.tmax = tmax; LF.tempAt = Date.now();
+    // hourly (weighted the same way): feels-like °C, rain mm, sunshine W/m²
+    const wx = {};
+    if (list[0].hourly && list[0].hourly.time) list[0].hourly.time.forEach((ts, i) => {
+      const iso = ts.slice(0, 10), h = Number(ts.slice(11, 13)), o = wx[iso] || (wx[iso] = {a: new Array(24).fill(null), p: new Array(24).fill(null), r: new Array(24).fill(null)});
+      [['a', 'apparent_temperature'], ['p', 'precipitation'], ['r', 'shortwave_radiation']].forEach(([k, n]) => {
+        let s = 0, w = 0; list.forEach((l, c) => { const v = l.hourly && l.hourly[n] ? l.hourly[n][i] : null; if (v !== null && v !== undefined) { s += v * LF_CITIES[c][2]; w += LF_CITIES[c][2]; } });
+        if (w && h >= 0 && h < 24) o[k][h] = s / w;
+      });
+    });
+    LF.temp = t; LF.tmax = tmax; LF.wx = wx; LF.tempAt = Date.now();
   } catch (e) { /* forecast without weather */ }
 }
 
@@ -120,17 +289,21 @@ async function lfTemps() {
 function lfCompute() {
   if (!LF.data) return null;
   if (LF.fc && LF.fc.scen === LF.scen) return LF.fc;
-  const days = {}, hol = new Set(LF.data.holidays || []), temp = LF.temp || {};
+  const days = {}, hol = lfHolOf(LF.data), temp = LF.temp || {}, wx = LF.wx && Object.keys(LF.wx).length ? LF.wx : null;
   LF.data.days.forEach(d => { days[d.date] = d; });
   const today = LF.data.today, tomorrow = lfAdd(today, 1);
   const opt = {auto: {}, work: {type: lfDow(tomorrow) === 6 ? 'S' : 'W'}, hol: {type: 'H'}, p2: {dT: 2}, m2: {dT: -2}}[LF.scen] || {};
-  const f = lfForecast(tomorrow, days, hol, temp, opt), bt = lfBacktest(tomorrow, days, hol, temp);
+  // the hourly weather model is used only when it does better than the daily °C rule on the same 14 days
+  const bt0 = lfBacktest(tomorrow, days, hol, temp), btW = wx ? lfBacktest(tomorrow, days, hol, temp, 14, {wx}) : null;
+  const useWx = !!(btW && bt0 && btW.mape < bt0.mape - 0.05), bt = useWx ? btW : bt0;
+  const f = lfForecast(tomorrow, days, hol, temp, Object.assign({}, opt, useWx ? {wx} : {}));
   if (!f) return (LF.fc = {scen: LF.scen, none: true});
+  f.btAlt = {daily: bt0 ? bt0.mape : null, hourly: btW ? btW.mape : null, useWx};
   const tune = lfTuneFactors();
   f.raw = f.fc.slice();
   if (tune) { f.fc = f.fc.map((v, b) => (v === null ? null : v * tune.f[Math.floor(b / 4)])); f.tune = tune; }
   const z = 1.28, band = f.fc.map((v, b) => (v === null || !bt ? null : [v * (1 - z * bt.sd[b]), v * (1 + z * bt.sd[b])]));
-  LF.fc = {scen: LF.scen, tomorrow, today, f, bt, band, days, hol, autoType: lfType(tomorrow, hol)};
+  LF.fc = {scen: LF.scen, tomorrow, today, f, bt, band, days, hol, autoType: lfSpT(tomorrow, hol) ? lfTypeN(tomorrow) : lfType(tomorrow, hol)};
   if (LF.scen === 'auto') lfIssue(LF.fc);
   return LF.fc;
 }
@@ -165,7 +338,7 @@ function lfAccRows() {
 }
 /** Hourly correction from the last 21 full days: median actual / untuned forecast per hour, weighted in from 5 days, ±6 % at most. */
 function lfTuneFactors() {
-  const rows = lfAccRows().filter(r => r.full).slice(-21);
+  const hol = LF.data ? lfHolOf(LF.data) : null, rows = lfAccRows().filter(r => r.full && !(hol && (lfOdd(r.date, hol) || (hol.sp[r.date] && hol.sp[r.date].ai !== null)))).slice(-21);
   if (rows.length < 5) return null;
   const w = Math.min(1, rows.length / 10);
   const f = Array.from({length: 24}, (_, h) => {
@@ -315,10 +488,10 @@ function lfDaysRender() {
   if (!box) return;
   const head = '<h2>Gujarat demand · last 14 days <span class="more muted" style="font-weight:500;font-size:11.5px">peak, energy, RE share</span></h2>';
   if (!LF.data) { box.innerHTML = head + (LF.busy ? '<div class="sk" style="height:200px"></div>' : `<div class="empty">${esc(LF.err || 'Loading the daily profiles…')}</div>`); return; }
-  const hol = new Set(LF.data.holidays || []), today = LF.data.today;
+  const hol = lfHolOf(LF.data), today = LF.data.today;
   const list = LF.data.days.filter(d => d.date < today && d.date >= lfAdd(today, -14) && d.c.filter(v => v !== null).length >= 80).map(d => {
     const st = lfStats(d.c), sol = lfStats(d.s || []).mu || 0, win = lfStats(d.w || []).mu || 0;
-    return {date: d.date, type: lfType(d.date, hol), pk: st.pk, mu: st.mu, re: st.mu ? (sol + win) / st.mu * 100 : null, sol, win};
+    return {date: d.date, type: lfOdd(d.date, hol) ? 'H' : lfType(d.date, hol), pk: st.pk, mu: st.mu, re: st.mu ? (sol + win) / st.mu * 100 : null, sol, win};
   });
   if (!list.length) { box.innerHTML = head + '<div class="empty">No complete days yet.</div>'; return; }
   const W = Math.max(box.clientWidth || 320, 260), H = 210, L = 40, R = 40, T = 12, B = 30, n = list.length, bw = (W - L - R) / n;
@@ -367,7 +540,7 @@ function lfRender() {
   const chip = (k, l) => `<button class="chip ${LF.scen === k ? 'on' : ''}" data-lfs="${k}">${l}</button>`;
   const tTxt = f.tT !== null ? `${fmt(f.tT, 1)} °C mean${LF.tmax && LF.tmax[tomorrow] !== undefined ? ' · max ' + fmt(LF.tmax[tomorrow] + (LF.scen === 'p2' ? 2 : LF.scen === 'm2' ? -2 : 0), 1) + ' °C' : ''}` : 'weather not available';
   const chg = sameSt && st.mu ? (st.mu - sameSt.mu) / sameSt.mu * 100 : null;
-  box.innerHTML = head + `<div class="vals" style="margin:-4px 0 8px"><b>${esc(dname)}</b> · ${typeTxt[f.type]}${fc.autoType !== f.type ? ' (scenario)' : ''} · ${esc(tTxt)}</div>
+  box.innerHTML = head + `<div class="vals" style="margin:-4px 0 8px"><b>${esc(dname)}</b> · ${f.sp ? `<b>${esc(f.sp.name || 'special day')}</b> · ${fmt(f.sp.f * 100, 0)}% of an ordinary ${typeTxt[f.type]}` : typeTxt[f.type] + (LF.scen !== 'auto' && fc.autoType !== f.type ? ' (scenario)' : '')} · ${esc(tTxt)}</div>
     <div class="chips">${chip('auto', 'Auto')}${chip('work', 'As working day')}${chip('hol', 'As holiday')}${chip('p2', '+2 °C')}${chip('m2', '−2 °C')}</div>
     <div class="tstats" style="grid-template-columns:repeat(4,1fr)">
       <div><span>Peak</span><b class="num">${st.pk ? fmt(st.pk.v) : '—'}</b><small>MW at ${st.pk ? lfHm(st.pk.b) : '—'}${bt ? ' · ±' + fmt(st.pk.v * 1.28 * bt.sd[st.pk.b], 0) : ''}</small></div>
@@ -387,11 +560,36 @@ function lfRender() {
     <div class="keyline"><span><i style="width:16px;height:3px;background:var(--accent)"></i>Tomorrow (forecast)</span><span><i style="width:16px;height:8px;background:var(--accent);opacity:.25"></i>80 % range</span>
       <span><i style="width:16px;height:3px;background:var(--brand2)"></i>Today</span><span><i style="width:16px;height:0;border-top:2px dashed var(--muted)"></i>Yesterday</span>
       ${lastSame && f.sim[0] !== lfAdd(fc.today, -1) ? `<span><i style="width:16px;height:0;border-top:2px dotted var(--s1)"></i>Last ${esc(typeTxt[f.type])} (${esc(f.sim[0].slice(8))}/${esc(f.sim[0].slice(5, 7))})</span>` : ''}</div>
-    <div class="note-src">How: median of similar days (${f.sim.map(d => d.slice(8) + '/' + d.slice(5, 7)).join(', ')}), weather ${f.slope ? `${fmt(f.slope, 0)} MW per °C (${f.tT !== null && f.tSim !== null ? (f.tT >= f.tSim ? '+' : '−') + fmt(Math.abs(f.tT - f.tSim), 1) + ' °C vs those days' : 'no temperature'})` : 'effect not significant yet'}, recent level ${f.level >= 1 ? '+' : '−'}${fmt(Math.abs(f.level - 1) * 100, 1)}%${f.tune ? `, fine-tuned from ${f.tune.n} days of forecast vs actual (${f.tune.avg >= 0 ? '+' : '−'}${fmt(Math.abs(f.tune.avg), 1)}% on average)` : ''}.
-      Holidays: built-in fixed dates plus the AppSettings list HOLIDAYS (festivals such as Diwali). Profiles from the readings the app keeps; weather Open-Meteo. A planning guide, not SLDC's forecast.</div>
+    ${lfDrivers(fc)}
+    <div class="note-src">Similar days: ordinary days only (special days left out). Special days: AI (Google Gemini) reading the calendar, industry vacations, farm season and the weather outlook, measured against what happened afterwards; AppSettings SPECIAL_DAYS overrides. Profiles from the readings the app keeps; weather Open-Meteo. A planning guide, not SLDC's forecast.</div>
     ${csvBtn('loadFc', 'Gujarat_load_forecast_' + tomorrow, ['Block', 'Time', 'Forecast MW', 'Low (80%) MW', 'High (80%) MW', 'Today MW', 'Yesterday MW'],
       f.fc.map((v, b) => [b + 1, lfHm(b), v === null ? null : Math.round(v), band[b] ? Math.round(band[b][0]) : null, band[b] ? Math.round(band[b][1]) : null, today?.c?.[b] ?? null, yday?.c?.[b] ?? null]))}`;
   lfAccRender();
+}
+
+/** "What shapes tomorrow": each driver of the forecast and its size. */
+function lfDrivers(fc) {
+  const {f, tomorrow, hol} = fc, st = lfStats(f.fc), mw = v => `${v >= 0 ? '+' : '−'}${fmt(Math.abs(v), 0)} MW`, dm = iso => iso.slice(8) + '/' + iso.slice(5, 7);
+  const rows = [];
+  const simTxt = f.sim.map(dm).join(', ');
+  if (f.sp) {
+    const ord = st.mu ? st.mu / f.sp.f : null;
+    rows.push(['Special day', `${esc(f.sp.name || 'special day')}: ${fmt(f.sp.f * 100, 0)}% of an ordinary day${f.sp.eve ? `, evening / night ${f.sp.eve > 0 ? '+' : '−'}${fmt(Math.abs(f.sp.eve), 0)}%` : ''}${ord ? ` (about ${fmt(ord - st.mu, 0)} MU less than ${fmt(ord, 1)} MU)` : ''}${f.sp.why ? ' · ' + esc(f.sp.why) : ''}`]);
+  }
+  if (f.cal) rows.push(['Special period so far', `the last days ran ${f.cal.f >= 1 ? '+' : '−'}${fmt(Math.abs(f.cal.f - 1) * 100, 1)}% against what was expected (${f.cal.ev.map(x => dm(x.d) + (x.part ? ' so far' : '') + ' ' + fmt(x.r * 100, 0) + '%').join(', ')}), applied to tomorrow`]);
+  rows.push(['Similar days', `${simTxt} (median, ordinary ${({W: 'working days', S: 'Saturdays', H: 'Sundays / holidays'})[f.type]})`]);
+  if (f.wx) {
+    const [t, r, sun] = f.wx.mw;
+    rows.push(['Weather, hour by hour', `feels-like temperature ${mw(t)}, rain ${mw(r)}, sunshine (rooftop solar) ${mw(sun)} on average against those days · learnt from ${f.wx.n} days`]);
+  } else rows.push(['Weather', f.slope ? `${fmt(f.slope, 0)} MW per °C${f.tT !== null && f.tSim !== null ? ` (${f.tT >= f.tSim ? '+' : '−'}${fmt(Math.abs(f.tT - f.tSim), 1)} °C vs those days, ${mw(f.slope * (f.tT - f.tSim))})` : ''}` : 'effect not significant yet']);
+  if (f.btAlt && f.btAlt.hourly !== null && f.btAlt.daily !== null) rows.push(['Weather model', `${f.btAlt.useWx ? 'hourly' : 'daily °C'} model in use: back-test ±${fmt(f.btAlt.hourly, 1)}% hourly vs ±${fmt(f.btAlt.daily, 1)}% daily`]);
+  rows.push(['Recent level', `${f.level >= 1 ? '+' : '−'}${fmt(Math.abs(f.level - 1) * 100, 1)}% (the last 3 days against their own similar days)`]);
+  if (f.tune) rows.push(['Fine-tuning', `${f.tune.n} days of forecast vs actual, ${f.tune.avg >= 0 ? '+' : '−'}${fmt(Math.abs(f.tune.avg), 1)}% on average`]);
+  const next = Object.keys((hol && hol.sp) || {}).filter(d => d > tomorrow && d <= lfAdd(tomorrow, 21) && hol.sp[d].ai !== null).sort().slice(0, 8);
+  if (next.length) rows.push(['Coming up', next.map(d => `<b>${dm(d)}</b> ${esc(hol.sp[d].name || '')} ${fmt(hol.sp[d].ai * 100, 0)}%`).join(' · ')]);
+  const past = Object.keys((hol && hol.sp) || {}).filter(d => d <= fc.today && d >= lfAdd(fc.today, -30) && hol.sp[d].real !== null).sort().reverse().slice(0, 4);
+  if (past.length) rows.push(['Measured lately', past.map(d => `${dm(d)} ${esc(hol.sp[d].name || '')} ${fmt(hol.sp[d].real * 100, 0)}%${hol.sp[d].ai !== null ? ` (expected ${fmt(hol.sp[d].ai * 100, 0)}%)` : ''}`).join(' · ')]);
+  return `<div style="margin-top:8px"><div class="muted" style="font-size:12px;font-weight:600;margin-bottom:2px">What shapes tomorrow</div>${rows.map(([k, v]) => `<div class="row"><div class="nm"><b>${k}</b><small>${v}</small></div></div>`).join('')}</div>`;
 }
 
 function lfShow() { lfHeroRender(); lfRender(); lfDaysRender(); lfAccRender(); lfLoad(false); }
@@ -401,4 +599,4 @@ if (typeof document !== 'undefined') document.addEventListener('click', e => {
   const d = e.target.closest('[data-lfacc]');
   if (d) { LF.accDay = d.dataset.lfacc; lfAccRender(); if (window.APP_MODE === 'gpower' && typeof render === 'function') render(); }
 });
-if (typeof module !== 'undefined') module.exports = {lfForecast, lfBacktest, lfStats, lfType, lfAdd, lfAccRows, lfTuneFactors, LF};
+if (typeof module !== 'undefined') module.exports = {lfForecast, lfBacktest, lfRealOf, lfPeriodCal, lfHolOf, lfOdd, lfWxModel, lfToBlocks, lfStats, lfType, lfAdd, lfAccRows, lfTuneFactors, LF};

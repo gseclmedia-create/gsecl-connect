@@ -30,12 +30,14 @@ function appCan(module, how = 'view') {
   if (!p || p.v !== 2) return how === 'view';
   return ((how === 'edit' ? p.edit : p.view) || []).includes(module);
 }
-const appSeeSection = sec => ({gen: appCan('generation'), dsm: appCan('dsm'), coal: appCan('rakes') || appCan('coal'), safety: appCan('safety_obs') || appCan('safety_inc') || appCan('safety_ptw'), connect: true, me: true}[sec] !== false);
+// DSM is a sub-tab of Generation; Projects (PNP portal) only for those given "projects".
+const appSeeSection = sec => ({gen: appCan('generation') || appCan('dsm'), coal: appCan('rakes') || appCan('coal'), safety: appCan('safety_obs') || appCan('safety_inc') || appCan('safety_ptw'), projects: appCan('projects'), connect: true, me: true}[sec] !== false);
 
 /** Hides the bottom-bar entries of pages this employee has not been given. */
 function appApplyAccess() {
   if (typeof Native === 'undefined' || !Native.account) return;
   document.querySelectorAll('#nav button').forEach(b => { b.hidden = !appSeeSection(b.dataset.sec); });
+  if ($('genDsmTab')) $('genDsmTab').hidden = !appCan('dsm');
   const shown = [...document.querySelectorAll('#nav button')].filter(b => !b.hidden).length;
   $('nav').style.gridTemplateColumns = `repeat(${shown}, 1fr)`;
 }

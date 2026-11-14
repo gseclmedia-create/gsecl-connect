@@ -331,7 +331,7 @@ function soOnlyStart() {
   window.SOLAR_ONLY = true;
   document.body.classList.add('solaronly');
   const st = document.createElement('style');
-  st.textContent = 'body.solaronly #nav,body.solaronly #genTabs,body.solaronly #alerts,body.solaronly #meBtn,body.solaronly #refreshBtn,body.solaronly .credit,body.solaronly header .grid3,body.solaronly header .stamp,body.solaronly #liveDot,body.solaronly #liveTxt{display:none!important}body.solaronly main{padding-bottom:24px}';
+  st.textContent = 'body.solaronly #nav,body.solaronly #genTabs,body.solaronly #alerts,body.solaronly #meBtn,body.solaronly #refreshBtn,body.solaronly .credit,body.solaronly header .grid3,body.solaronly header .stamp,body.solaronly header .hb-strip,body.solaronly header .tick,body.solaronly #liveDot,body.solaronly #liveTxt{display:none!important}body.solaronly main{padding-bottom:24px}';
   document.head.appendChild(st);
   show('solar');
 }

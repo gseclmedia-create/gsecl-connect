@@ -23,12 +23,25 @@ const W_PAGES = [
   ['mgmtrep', 'Daily management report', 'Generation, outages, DSM, coal and safety of a day as a PDF', 'adminonly', 'edit'],
 ];
 const W_UNIT_STATUS = ['In service', 'Under shutdown', 'Decommissioned'];
+/** Icon (connect.js CON_IC) and group of each tool. */
+const W_IC = {stations: ['plant', '#0f766e'], boilers: ['boiler', '#b45309'], pafafc: ['coin', '#15803d'], aohplan: ['cal', '#4f46e5'], efficiency: ['gauge', '#0369a1'],
+  outreg: ['list', '#be123c'], meritreg: ['chart', '#7c3aed'], capacity: ['pie', '#0891b2'], u8: ['live', '#dc2626'],
+  pubcirc: ['doc', 'var(--accent)'], pubnews: ['photo', 'var(--brand2)'], pubnote: ['send', '#2563eb'],
+  admin: ['idcard', '#475569'], activity: ['pulse', '#0d9488'], devreq: ['check', '#16a34a'], mgmtrep: ['report', '#9333ea']};
+const W_GROUPS = [['Plant & performance', p => p[4] === 'view'], ['Publish', p => p[0].startsWith('pub')], ['Administration', p => p[4] === 'edit' && !p[0].startsWith('pub')]];
+/** One tool as a row with its icon: act 'tool' (from the Connect hub) or 'open' (inside Tools). */
+const wToolRow = (p, act = 'open') => {
+  const [ic, col] = W_IC[p[0]] || ['list', 'var(--accent)'], attr = act === 'tool' ? `data-cact="tool" data-carg="${p[0]}"` : `data-wact="open" data-warg="${p[0]}"`;
+  return `<div class="tl-row" ${attr} style="--qc:${col}"><span class="qi">${typeof conIc === 'function' ? conIc(ic, 18) : ''}</span><span class="tx"><b>${esc(p[1])}</b><small>${esc(p[2])}</small></span><span class="go">›</span></div>`;
+};
 
 const wMe = () => { try { return JSON.parse(Native.account() || '{}'); } catch (e) { return {}; } };
 const wCan = (module, how) => { if (module === 'everyone') return true; if (module === 'superadmin') return wMe().role === 'superadmin'; if (module === 'adminonly') return ['admin', 'superadmin'].includes(wMe().role); const p = wMe().permissions || {}; return ((how === 'edit' ? p.edit : p.view) || []).includes(module); };
 const wRoleBadge = r => r === 'superadmin' ? '<span class="badge b-Forced">Super admin</span>' : r === 'admin' ? '<span class="badge b-RSD">Admin</span>' : r === 'solar' ? '<span class="badge b-Planned">Solar entry</span>' : '';
 const wBtn = (label, act, arg = '', primary = false) => `<button class="btn" data-wact="${act}" data-warg="${esc(arg)}" style="${primary ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : 'color:var(--accent)'}">${esc(label)}</button>`;
-const wBack = (label = 'More') => `<div class="chips"><button class="chip" data-wact="back">‹ ${esc(label)}</button></div>`;
+const wBack = (label = 'Tools') => `<div class="pg-h"><button class="pg-back" data-wact="back" aria-label="Back">‹</button><div class="pg-t">${esc(wTitle(label))}</div></div>`;
+/** The open tool's name for its page heading ("Back" on a form: the form names itself). */
+const wTitle = label => { const p = W_PAGES.find(x => x[0] === W.page); return p ? p[1] : W.form ? 'Back' : label; };
 const wMsg = () => (W.error ? conErr(W.error) : '') + (W.note ? `<div class="alert" style="background:#dcfce7;color:#166534;border-color:#bbf7d0"><span>✓</span><span>${esc(W.note)}</span></div>` : '');
 const wSel = (name, cur, all, values, labels = values) => `<select class="search" data-wsel="${name}" style="margin:0 0 8px">${all === null ? '' : `<option value="">${esc(all)}</option>`}${values.map((v, i) => `<option value="${esc(v)}" ${String(v) === String(cur) ? 'selected' : ''}>${esc(labels[i])}</option>`).join('')}</select>`;
 const wNum = (v, d = 2) => v === null || v === undefined || v === '' ? '—' : fmt(v, d);
@@ -168,8 +181,8 @@ async function wOutages(more = false, withMeta = false) {
 function wMenu() {
   const rows = W_PAGES.filter(p => wCan(p[3], p[4]));
   if (!rows.length) return `<div class="card">${conEmpty('No additional sections are enabled for your account. Access is given by the administrator.')}</div>`;
-  const group = (title, list) => list.length ? `<div class="card"><h2>${title}</h2>${list.map(p => `<div class="srow" data-wact="open" data-warg="${p[0]}"><div class="top"><span class="nm">${esc(p[1])}</span><span class="vals">›</span></div><div class="vals">${esc(p[2])}</div></div>`).join('')}</div>` : '';
-  return group('Plant information', rows.filter(p => p[4] === 'view')) + group('Publish and administer', rows.filter(p => p[4] === 'edit'));
+  const group = (title, list) => list.length ? `<div class="card"><h2>${title}</h2>${list.map(p => wToolRow(p)).join('')}</div>` : '';
+  return W_GROUPS.map(([title, f]) => group(title, rows.filter(f))).join('');
 }
 
 const wUnitLine = u => [u.capacity_mw && fmt(u.capacity_mw) + ' MW', u.fuel, u.make, u.commissioned && 'since ' + conDate(u.commissioned)].filter(Boolean).join(' · ');
@@ -434,7 +447,8 @@ function wStartForm(kind, arg = '') {
       {k: 'important', label: 'Mark as important', type: 'check', value: false}, {k: 'notify', label: 'Notify employees', type: 'check', value: true}]};
   } else if (kind === 'pubnews') {
     f = {kind, title: 'Post news', saveLabel: 'Post', fields: [{k: 'title', label: 'Headline'}, {k: 'body', label: 'Text', type: 'area', rows: 8},
-      {k: 'station', label: 'For', type: 'select', options: stationOpts, value: ''}, {k: 'image', label: 'Photo (optional)', type: 'file', accept: 'image/*'}, {k: 'notify', label: 'Notify employees', type: 'check', value: true}]};
+      {k: 'station', label: 'For', type: 'select', options: stationOpts, value: ''}, {k: 'image', label: 'Photo (optional)', type: 'file', accept: 'image/*'}, {k: 'notify', label: 'Notify employees', type: 'check', value: true},
+      {k: 'popup', label: 'Show in the daily pop-up (today and tomorrow, on the first opening of the app)', type: 'check', value: false}]};
   } else if (kind === 'pubnote') {
     f = {kind, title: 'Send a notice', saveLabel: 'Send', fields: [{k: 'title', label: 'Title'}, {k: 'message', label: 'Message', type: 'area', rows: 4},
       {k: 'type', label: 'Priority', type: 'select', options: [['general', 'Normal'], ['urgent', 'Urgent']], value: 'general'}, {k: 'station', label: 'Station', type: 'select', options: stationOpts, value: ''},

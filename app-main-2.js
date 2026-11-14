@@ -332,7 +332,7 @@ function gdHeroHtml(g) {
   const scale = Math.max(T.dc || 0, T.gen || 0, T.sg || 0, 1);
   return `<div class="dhero">
     <div class="t" style="display:flex;justify-content:space-between;gap:8px"><span>GSECL generation · live</span><span style="opacity:.75;font-weight:600;letter-spacing:.02em;text-transform:none">${esc(g.data_time || '')}${g.stale ? ' · <b style="color:#fde68a">stale</b>' : ''}</span></div>
-    <div class="v num" style="margin-top:8px">${fmt(T.gen)}<small style="font-size:14px;font-weight:600;opacity:.8">MW</small>${dcPct !== null ? `<span class="dpill ${dcPct >= 85 ? 'r' : 'p'}">${fmt(dcPct, 0)}% of DC</span>` : ''}</div>
+    <div class="v num" style="margin-top:8px"><span data-cu="gen" data-to="${T.gen}">${fmt(T.gen)}</span><small style="font-size:14px;font-weight:600;opacity:.8">MW</small>${dcPct !== null ? `<span class="dpill ${dcPct >= 85 ? 'r' : 'p'}">${fmt(dcPct, 0)}% of DC</span>` : ''}</div>
     <div class="gbar"><i style="width:${Math.min(100, T.gen / scale * 100)}%"></i>${T.sg ? `<b style="left:calc(${Math.min(100, T.sg / scale * 100)}% - 1px)"></b>` : ''}</div>
     <div class="dsplit-k num"><span>Generation ${fmt(T.gen)} MW</span><span>▮ Schedule ${T.sg === null ? '—' : fmt(T.sg)} · DC ${T.dc === null ? '—' : fmt(T.dc)} MW</span></div>
     <div class="dkpis" style="grid-template-columns:repeat(3,1fr)">
@@ -1596,7 +1596,7 @@ function render() { renderHeader(); renderAlerts(); renderHome(); renderGujarat(
 
 // ---------------------------------------------------------------- interaction
 
-const SECTION = {home: 'gen', stations: 'gen', outages: 'gen', grid: 'gen', merit: 'gen', hydro: 'gen', solar: 'gen', u8: 'connect', alerts: 'gen', dsm: 'dsm', coal: 'coal', safety: 'safety', connect: 'connect', chat: 'chat', info: 'me'};
+const SECTION = {home: 'gen', stations: 'gen', outages: 'gen', grid: 'gen', merit: 'gen', hydro: 'gen', solar: 'gen', u8: 'connect', alerts: 'gen', dsm: 'gen', coal: 'coal', safety: 'safety', projects: 'projects', connect: 'connect', chat: 'chat', info: 'me'};
 function show(v) {
   // Inside the Android app's native shell: the dashboard is native, and the native bar follows the page's section.
   if (window.NATIVE_SHELL && hasNative('shellSection') && v === 'home') { Native.shellSection('native'); return; }
@@ -1619,6 +1619,7 @@ function show(v) {
   if (v === 'u8' && typeof u8Show === 'function') u8Show();
   if (v === 'coal') kShow();
   if (v === 'safety') ySafetyShow();
+  if (v === 'projects' && typeof pjShow === 'function') pjShow();
   if (v === 'connect') conShow();
   if (v === 'chat') chShow(); else if (typeof chTick === 'function') chTick();
   if (v === 'info') meRender();
@@ -1678,7 +1679,18 @@ function meMenu(open) {
     const at = /(\d{2}:\d{2}):\d{2}$/.exec(String(S.gsecl?.fetched_at || ''));
     $('mmRef').textContent = at ? 'last ' + at[1] : '';
   }
-  m.hidden = !open;
+  if (open) {
+    clearTimeout(m._t); m.hidden = false; m.dataset.closing = '';
+    let scrim = $('mmScrim');
+    if (!scrim) { scrim = document.createElement('div'); scrim.id = 'mmScrim'; scrim.className = 'mm-scrim'; m.parentNode.insertBefore(scrim, m); }
+    scrim.hidden = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => { m.classList.add('open'); scrim.classList.add('on'); }));
+  } else {
+    if (m.hidden || m.dataset.closing) return;
+    m.dataset.closing = '1'; m.classList.remove('open');
+    const scrim = $('mmScrim'); if (scrim) scrim.classList.remove('on');
+    m._t = setTimeout(() => { m.hidden = true; m.dataset.closing = ''; if (scrim) scrim.hidden = true; }, 220);
+  }
 }
 $('meBtn').addEventListener('click', e => { e.stopPropagation(); meMenu(); });
 document.addEventListener('click', e => {
@@ -1714,6 +1726,55 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What's new in each version (Profile › About): interface and feature changes users notice, the newest first. */
 const RELEASE_NOTES = [
+  ['3.26.0', '14 Nov 2026', [
+    'New slim header that stays at the top: logo, AI chat and profile; a grid line with frequency, Gujarat catered and IEX RTM; and a live ticker of the power position (GSECL MU and share, top station, trips and syncs, outages, prices)',
+    'Today’s highlights pop up on the first opening of each day, with news the administrator chooses (picture and text); tap the ticker to see them again',
+    'Web: stay signed in for a week, like the phone (a fresh e-mailed code weekly)',
+    'Security: a sign-in on another device is told to you and to the super administrators, who can block that device',
+  ]],
+  ['3.25.1', '13 Nov 2026', [
+    'Fixed: the screen could stay blank after unlocking the phone (the app lock now waits until the app is on screen and asks again if the phone cancelled it)',
+  ]],
+  ['3.25.0', '13 Nov 2026', [
+    'Generation pages with charts: Stations (units by state, capacity use), Outages (by type and MW, how long out, longest), Merit order (cost now, cost ladder), Hydro dam storage gauges and Solar CUF by site',
+  ]],
+  ['3.24.0', '13 Nov 2026', [
+    'Coal: days of coal at each station as gauges, received against burnt, rakes inside and in transit, coal categories, today’s movements and the arrivals forecast as charts',
+    'Safety: gauges for days without LTI and closures, severity, categories and station-wise records as charts',
+    'Chat: new header with chats, unread and groups, refreshed message bubbles',
+  ]],
+  ['3.23.0', '13 Nov 2026', [
+    'My profile redesigned: photo cover, profile completeness, contact details at a glance',
+    'Separate pages for Notifications (with charts), Settings & security, Change password and About & data sources',
+    'Login activity and Approvals with charts: who is using the app, sign-ins by hour, by station, app versions, requests and waiting times',
+  ]],
+  ['3.22.0', '13 Nov 2026', [
+    'Projects redesigned with charts: overview gauges and S-curve, Engineering (BHEL PEDM: MDL status, documents with GSECL / with BHEL / due, ageing, RFC by month, compliance, comments)',
+    'Projects: MDCC material despatch clearance (items cleared, requests to approve, balance), Site (DPR sections, manpower, machinery, foundations), Finance and Risks (matrix, issues, owner inputs)',
+  ]],
+  ['3.21.0', '13 Nov 2026', [
+    'New corporate look across the app: navy header, refined cards, smooth transitions; charts draw in and figures count up when a page opens',
+    'Generation dashboard: Overview and In depth views, key insights worked out from the live data, and a station loading ranking',
+    'Customize the dashboard: move, hide or show any card or chart (button next to Overview / In depth)',
+  ]],
+  ['3.20.0', '13 Nov 2026', [
+    'Connect redesigned: a new home with quick actions, notices, birthdays, the latest circulars and news, and your tools; every section opens as its own page',
+    'Smooth page transitions, an animated menu and a sync indicator',
+    'Super administrators: a console with the Google Sheet menu tasks as forms, service health, app settings and background tasks',
+    'Load forecast: festival and vacation periods corrected from how the last days actually ran; the AI checks this year’s announced dates',
+  ]],
+  ['3.19.1', '13 Nov 2026', [
+    'Security: Sign out now also ends the sign-in on the GSECL Connect service, and a sign-in works only on the phone it was made on',
+    'Security: documents and pictures kept on the phone are encrypted and checked again with the service after 7 days',
+  ]],
+  ['3.18.3', '8 Nov 2026', [
+    'Load forecast: festivals, Diwali and industry vacations, farm season and weather extremes read by the AI, each day forecast at its share of an ordinary day and checked against what happened',
+    'Load forecast: hour-by-hour weather (feels-like temperature, rain, sunshine on rooftop solar) and a “What shapes tomorrow” list',
+  ]],
+  ['3.18.2', '5 Nov 2026', [
+    'Outage register filled in automatically from SLDC’s outage list (trips, planned outages and reserve shutdowns, with the return time); every entry can still be edited',
+    'Outage register: availability from outages (reserve shutdown counted as available), also station-wise in the CSV',
+  ]],
   ['3.18.0', '5 Nov 2026', [
     'One device at a time: signing in on another phone or on the web (with a fresh code) signs this phone out; extra phones are no longer approved',
     'New “Ask” button (top right): ask about demand, generation, units, outages, coal, PAF, DSM or prices on any day the app has kept; AI (Google Gemini) answers from the app’s own records',
