@@ -155,6 +155,8 @@ async function liveSync(extraWant) {
     let changed = false;
     for (const [k, o] of Object.entries(r.data.data || {})) {
       try { LIVE.copy[k] = {at: o.at, obj: JSON.parse(o.data)}; } catch (e) { continue; }
+      // a merit-order revision another device read from SLDC: kept here too, however old the reading (valid till revised)
+      if (k === 'merit' && LIVE.copy[k].obj.entry && typeof meritAdopt === 'function' && meritAdopt(LIVE.copy[k].obj.entry)) changed = true;
       if (k === 'fois') { if (window.kLiveFois) window.kLiveFois(LIVE.copy[k]); continue; }
       if (liveUse(k)) changed = true;
     }
@@ -1726,6 +1728,14 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What's new in each version (Profile › About): interface and feature changes users notice, the newest first. */
 const RELEASE_NOTES = [
+  ['3.27.1', '16 Nov 2026', [
+    'Merit order on the web version: the latest SLDC merit order read by the Android app is now shared through GSECL Connect, so the web page (and phones that cannot reach SLDC) show the current rates.',
+  ]],
+  ['3.27.0', '14 Nov 2026', [
+    'Login activity is now the Activity centre: who is live (with faces), overview charts, people cards, security (alerts, other-device sign-ins with Block, blocked devices) and a day-by-day sign-in timeline',
+    'Approvals is now the Approval desk: waiting requests as cards with how long they have waited and large Approve / Reject buttons, and the decisions as a timeline',
+  ]],
+  ['3.26.1', '14 Nov 2026', ['Header: the empty space above the new top bar is removed']],
   ['3.26.0', '14 Nov 2026', [
     'New slim header that stays at the top: logo, AI chat and profile; a grid line with frequency, Gujarat catered and IEX RTM; and a live ticker of the power position (GSECL MU and share, top station, trips and syncs, outages, prices)',
     'Today’s highlights pop up on the first opening of each day, with news the administrator chooses (picture and text); tap the ticker to see them again',

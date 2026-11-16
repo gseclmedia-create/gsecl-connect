@@ -144,6 +144,24 @@ function meritHistory() {
 /** Latest revision: the rates the app uses. */
 let MERIT = null;
 function refreshMerit() { const h = meritHistory(); MERIT = h[h.length - 1]; return h; }
+/**
+ * A merit-order revision read by another device and shared through the GSECL Connect service (the web version and
+ * phones that cannot reach SLDC cannot read SLDC's PDF themselves): kept in this device's history like one read here.
+ */
+function meritAdopt(e) {
+  if (!e || !e.blocks || Object.keys(e.blocks).length < 10 || !/^\d{8}$/.test(String(e.fileDate || ''))) return false;
+  const have = meritHistory();
+  if (have.some(x => (e.file && x.file === e.file && String(x.stamp || '') === String(e.stamp || '') && (e.stamp || x.asOf === e.asOf)) ||
+    (x.asOf === e.asOf && JSON.stringify(x.blocks) === JSON.stringify(e.blocks)))) return false;
+  let saved = [];
+  try { saved = JSON.parse((typeof Native !== 'undefined' && Native.storeGet ? Native.storeGet('merit_history') : '') || '[]'); } catch (x) { saved = []; }
+  saved.push(Object.assign({}, e, {source: String(e.source || 'SLDC PDF').replace(/ \(shared\)$/, '') + ' (shared)'}));
+  try { Native.storeSet('merit_history', JSON.stringify(saved)); } catch (x) { return false; }
+  refreshMerit();
+  return true;
+}
+/** The latest revision read from SLDC (not the built-in one), shared with other devices. */
+const meritShare = () => (MERIT && MERIT.source !== 'built-in' ? MERIT : null);
 refreshMerit();
 
 // ---------------------------------------------------------------- native fetch bridge
@@ -649,7 +667,7 @@ async function sldcMeritCheck() {
   let date = stamp ? `${stamp.slice(6, 8)}.${stamp.slice(4, 6)}.${stamp.slice(0, 4)}` : '';
   const hist = refreshMerit();
   const seen = e => e.file === file || String(e.url || '').split('/').pop().toLowerCase() === file.toLowerCase();
-  if (stamp && hist.some(seen)) return {ok: true, url, date, added: false, count: hist.length};
+  if (stamp && hist.some(seen)) return {ok: true, url, date, added: false, count: hist.length, entry: meritShare()};
   try {
     const pdf = await httpGetBytes(url, 90);
     if (!pdf.ok) return {ok: false, url, date, error: `New merit order (${date || file}) could not be downloaded: ${pdf.error}`};
@@ -660,13 +678,13 @@ async function sldcMeritCheck() {
       return {ok: false, url, date, error: `New merit order (${date}) could not be read — its layout may have changed.`};
     // A file name without a time stamp (Meritorder.pdf) is the same for every revision: compare the contents.
     const same = e => e.asOf === date && JSON.stringify(e.blocks) === JSON.stringify(parsed.blocks);
-    if (!stamp && hist.some(same)) return {ok: true, url, date, added: false, count: hist.length};
+    if (!stamp && hist.some(same)) return {ok: true, url, date, added: false, count: hist.length, entry: meritShare()};
     const d = date.replace(/\D/g, '');
     hist.push({fileDate: d.length === 8 ? d : stamp.slice(6, 8) + stamp.slice(4, 6) + stamp.slice(0, 4), stamp: stamp || '', file,
       asOf: date, total: parsed.total, url, blocks: parsed.blocks, all: parsed.all, fetchedAt: nowText(), source: 'SLDC PDF'});
     Native.storeSet('merit_history', JSON.stringify(hist));
     refreshMerit();
-    return {ok: true, url, date, added: true, count: hist.length};
+    return {ok: true, url, date, added: true, count: hist.length, entry: meritShare()};
   } catch (e) {
     return {ok: false, url, date, error: `New merit order (${date}) could not be read: ${e.message}`};
   }

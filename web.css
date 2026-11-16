@@ -45,6 +45,7 @@ html:not(.web-ready) body > *:not(#webLogin):not(.web-offer):not(.web-toast) { v
 /* iPhone: the page runs under the status bar and above the home indicator (viewport-fit=cover). */
 .hero { padding-top: calc(14px + env(safe-area-inset-top)) !important; }
 .hero.hbar { padding-top: calc(8px + env(safe-area-inset-top)) !important; }
+.memenu { top: calc(56px + env(safe-area-inset-top)) !important; }
 nav.bn { padding-bottom: calc(6px + env(safe-area-inset-bottom)) !important; }
 body { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 .memenu { top: calc(62px + env(safe-area-inset-top)); }
