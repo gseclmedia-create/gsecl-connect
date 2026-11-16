@@ -84,7 +84,7 @@ async function load(what) {
     // A failed refresh keeps the last good data on screen and reports the error, instead of blanking the screen.
     if (res.ok) { res._at = Date.now(); LIVE.mine[what] = {at: res._at, res}; }
     if (res.ok || !S[what]?.ok) { S[what] = res; S.stale[what] = null; }
-    else S.stale[what] = {error: res.error, since: S[what].fetched_at};
+    else { const w = S[what].relay_at || S[what]._at; S.stale[what] = {error: res.error, since: S[what].fetched_at || (w ? new Date(w).toTimeString().slice(0, 5) : '')}; }
     if (!res.ok) liveUse(what);                 // another phone's reading, if this phone cannot reach the source
     if (what === 'home' && res.ok) recordSample();
     if ((what === 'outages' || what === 'gsecl') && res.ok) applyOutageSync();
@@ -256,7 +256,7 @@ function renderHeader() {
 function renderAlerts() {
   const a = [];
   const NAMES = {gsecl: 'GSECL feed', home: 'SLDC grid data', outages: 'SLDC unit outages', iex: 'IEX prices', merit: 'SLDC merit-order check'};
-  for (const [k, s] of Object.entries(S.stale)) if (s) a.push(['', `${NAMES[k]}: latest refresh failed (${s.error}). Showing data fetched ${s.since}.`]);
+  for (const [k, s] of Object.entries(S.stale)) if (s) a.push(['', `${NAMES[k]}: latest refresh failed (${s.error}). ${s.since ? 'Showing data fetched ' + s.since + '.' : 'Showing the last reading.'}`]);
   for (const k of Object.keys(NAMES)) if (S[k]?.relay_at) a.push(['', `${NAMES[k]}: this phone could not reach the source; showing the reading another phone shared through GSECL Connect at ${new Date(S[k].relay_at).toTimeString().slice(0, 5)}.`]);
   const g = S.gsecl;
   if (g && !g.ok) a.push(['err', `GSECL feed: ${g.error}`]);
