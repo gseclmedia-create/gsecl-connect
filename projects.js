@@ -1,21 +1,29 @@
-// Projects (4.1): mega-project status from the GSECL PNP portal (Ukai #7 1x800 MW …) through the Pnp_ tabs of the
-// GSECL Connect Sheet, shown as charts first: overview gauges and S-curve, engineering (BHEL PEDM: MDL, documents with
-// GSECL / with BHEL / due, RFC, compliance, comments), MDCC material despatch clearance, site (DPR, manpower, machinery,
-// foundations), finance (payments, cash plan, packages, BBU), risks (matrix, issues, owner inputs, hindrances),
-// milestones, and agency reports uploaded from the phone. Each tab loads its own summary (pnp_data part) when opened.
+// Projects (4.2): mega-project monitoring from the GSECL PNP portal (Ukai #7 1x800 MW …) through the GSECL Connect Sheet.
+// Two views:
+//   Management — an executive page built from the portal's own analytics (PccAnalytics: the same figures the Project
+//     Control Centre shows): timeline to synchronisation / COD, BHEL-reported progress against plan, the portal's
+//     planned S-curve, engineering measured, expenditure, milestones, hindrances, manpower, safety, key takeaways,
+//     financial S-curve, price break-up, material receipt and site photographs.
+//   Engineering — the working detail: engineering (BHEL PEDM: MDL, queues, divisions, review ageing, compliance,
+//     comments), MDCC, site (DPR sections, foundations, manpower, machinery, 60-day look-ahead), schedule (every
+//     milestone with its variance), finance (cash flow, payments, cash plan, non-EPC), risks and report upload.
+// Each view loads its own summary (pnp_data part: dash, photos, engg, mdcc, site, fin, risk) when opened.
 // Uses conCall, conSaved, conErr, conDate, conEmpty, conSpin, conMore from connect.js, appCan from coalstock.js, wAgo
 // from work.js, the chart kit of viz.js, and $, esc, fmt from index.html / app-main-2.js.
 
-const PJ = {tab: 'dash', data: null, stamp: 0, busy: false, error: '', note: '', pid: 0, saving: false, file: null, parts: {}, partBusy: {}, partErr: {}};
+const PJ = {view: 'mgmt', tab: 'engg', data: null, stamp: 0, busy: false, error: '', note: '', pid: 0, saving: false, file: null, parts: {}, partBusy: {}, partErr: {}, photos: {}, phBusy: 0};
+try { PJ.view = localStorage.getItem('pjView') === 'engg' ? 'engg' : 'mgmt'; PJ.tab = localStorage.getItem('pjTab') || 'engg'; } catch (e) { /* defaults */ }
 const PJ_IC = {
   dash: '<path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 3v6h8V3z"/>', engg: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
   mdcc: '<path d="M3 7l9-4 9 4-9 4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/>', site: '<path d="M2 20h20M5 20V9l7-5 7 5v11"/><path d="M9 20v-5h6v5"/>',
   fin: '<path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>', risk: '<path d="M12 3l9.5 16.5h-19z"/><path d="M12 10v4M12 17.5h.01"/>',
   ms: '<path d="M4 21V4M4 4h12l-2 4 2 4H4"/>', up: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 20h16"/>',
+  mgmt: '<path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/>', team: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/>',
 };
-const PJ_TABS = [['dash', 'Overview'], ['engg', 'Engineering'], ['mdcc', 'MDCC'], ['site', 'Site'], ['fin', 'Finance'], ['risk', 'Risks'], ['ms', 'Milestones'], ['up', 'Upload']];
+const PJ_TABS = [['engg', 'Engineering'], ['mdcc', 'MDCC'], ['site', 'Site'], ['ms', 'Schedule'], ['fin', 'Finance'], ['risk', 'Risks'], ['up', 'Upload']];
 const PJ_FRESH_MIN = 10;
 const PJ_MAX_MB = 20;
+const PJ_CAT = {engineering: ['Engineering', '#6a4fc9'], supply: ['Supply', '#0891b2'], civil: ['Civil works', '#c98a12'], erection: ['Erection & commissioning', '#0f766e']};
 
 const pjMsg = () => (PJ.error ? conErr(PJ.error) : '') + (PJ.note ? `<div class="alert" style="background:#dcfce7;color:#166534;border-color:#bbf7d0"><span>✓</span><span>${esc(PJ.note)}</span></div>` : '');
 const pjBtn = (label, act, arg = '', primary = false) => `<button class="btn" data-pjact="${act}" data-pjarg="${esc(arg)}" style="${primary ? 'background:var(--accent);color:#fff;border-color:var(--accent)' : 'color:var(--accent)'}">${esc(label)}</button>`;
@@ -28,6 +36,10 @@ const pjDays = d => Math.round((Date.now() - new Date(String(d).slice(0, 10) + '
 const pjAgeColor = d => (d > 180 ? '#be123c' : d > 90 ? '#d97706' : d > 30 ? '#ca8a04' : '#15803d');
 const PJ_AGE_KEYS = [{k: '0–30 d', c: '#15803d'}, {k: '31–60 d', c: '#ca8a04'}, {k: '61–90 d', c: '#d97706'}, {k: '91–180 d', c: '#ea580c'}, {k: 'over 180 d', c: '#be123c'}];
 const PJ_QUEUE = {pending_approval: 'With GSECL for approval', resub_pending: 'With BHEL for resubmission', due_not_submitted: 'Due, not submitted by BHEL', rfc: 'Released for construction', icat_submitted: 'I-category submitted'};
+/** The portal's analytics of the chosen project (null until loaded / when the portal has not sent them). */
+const pjD = () => (PJ.parts.dash && PJ.parts.dash.dash) || null;
+const pjCr = (rupees, d = 0) => '₹' + fmt(pjN(rupees) / 1e7, d) + ' Cr';
+const pjSigned = (v, d = 1) => (v > 0 ? '+' : v < 0 ? '−' : '') + fmt(Math.abs(v), d);
 
 // ---------------------------------------------------------------- loading
 
@@ -42,14 +54,14 @@ async function pjLoad(force = false) {
   PJ.busy = false;
   if (r.ok) {
     PJ.data = r.data; PJ.stamp = Date.now(); Connect.cacheSet(key, JSON.stringify(r.data));
-    if (!PJ.pid && r.data.projects?.length) PJ.pid = +r.data.projects[0].project_id;
+    if (!PJ.pid && r.data.projects?.length) PJ.pid = +((r.data.projects.find(p => pjN(p.planned_pct_today) || pjN(p.time_elapsed_pct)) || r.data.projects[0]).project_id);
     if (force) PJ.parts = {};
   } else if (!PJ.data || !saved) {
     PJ.error = /unknown action/i.test(r.error) ? 'The GSECL Connect script in the Google Sheet has not been updated for the Projects page yet. Add Pnp.gs, update Code.gs and deploy a new version.' : r.error;
   }
   pjRender(); pjNeedParts(force);
 }
-/** One tab's summary from the service (kept on the phone for 10 minutes). */
+/** One part's summary from the service (kept on the phone for 10 minutes). */
 async function pjPart(part, force = false) {
   if (PJ.partBusy[part] || typeof Connect === 'undefined' || !PJ.pid) return;
   const key = 'pnp_part_' + part + '_' + PJ.pid, saved = conSaved(key);
@@ -58,71 +70,241 @@ async function pjPart(part, force = false) {
   PJ.partBusy[part] = true; pjRender();
   const r = await conCall('pnp_data', {project_id: PJ.pid, part});
   PJ.partBusy[part] = false;
-  if (r.ok && r.data && r.data.part === part) { PJ.parts[part] = r.data; PJ.partErr[part] = ''; Connect.cacheSet(key, JSON.stringify(r.data)); }
+  if (r.ok && r.data && r.data.part === part) { PJ.parts[part] = r.data; PJ.partErr[part] = ''; try { Connect.cacheSet(key, JSON.stringify(r.data)); } catch (e) { /* large */ } }
   else if (!PJ.parts[part]) PJ.partErr[part] = r.ok ? 'This view comes with the updated GSECL Connect script (Pnp.gs).' : r.error;
   pjRender();
 }
-/** The overview also shows engineering and MDCC figures; a tab loads its own part. */
+/** The parts the open view needs: the portal's analytics everywhere, the tab's own summary in the engineering view. */
 function pjNeedParts(force) {
   if (!PJ.data || !PJ.pid) return;
-  const want = PJ.tab === 'dash' ? ['engg', 'mdcc'] : ['engg', 'mdcc', 'site', 'fin', 'risk'].includes(PJ.tab) ? [PJ.tab] : [];
+  const want = PJ.view === 'mgmt' ? ['dash', 'photos'] : ['dash'].concat(['engg', 'mdcc', 'site', 'fin', 'risk'].includes(PJ.tab) ? [PJ.tab] : []);
   want.forEach(p => { if (force || !PJ.parts[p]) pjPart(p, force); });
 }
 const pjWait = part => (PJ.partErr[part] ? pjCard('Not available', conEmpty(PJ.partErr[part])) : conSpin());
-
-// ---------------------------------------------------------------- overview
-
-/** The S-curve: planned overall (area), planned engineering / civil (dashed), measured overall and engineering (dots). */
-function pjCurve(rows) {
-  if (!rows || rows.length < 2) return conEmpty('S-curve not available yet.');
-  const lab = rows.map(r => String(r.month_end).slice(2, 7).replace('-', '/'));
-  const v = k => rows.map(r => (r[k] === '' || r[k] === null || r[k] === undefined ? null : +r[k]));
-  const now = new Date().toISOString().slice(0, 7);
-  return vzLine([{k: 'Planned overall', c: 'var(--accent)', pts: v('planned_overall'), w: 2.6}, {k: 'Planned engineering', c: '#6a4fc9', pts: v('planned_engineering'), dash: 1, w: 1.4},
-    {k: 'Planned civil', c: '#c98a12', pts: v('planned_civil'), dash: 1, w: 1.4}, {k: 'Measured overall', c: '#be123c', pts: v('actual_overall'), dots: 1, w: 0}],
-  lab, {max: 100, unit: '%', today: rows.findIndex(r => String(r.month_end).slice(0, 7) === now), aria: 'S-curve, cumulative progress'});
+/** Site photographs (thumbnails) are fetched one by one, three at a time, and kept on the phone. */
+function pjPhotoLoad() {
+  const list = (PJ.parts.photos && PJ.parts.photos.photos) || [];
+  list.forEach(p => {
+    const k = PJ.pid + '_' + p.n;
+    if (PJ.photos[k] || PJ.phBusy >= 3) return;
+    const saved = conSaved('pnp_ph_' + k);
+    if (saved && saved.data && saved.data.data) { PJ.photos[k] = saved.data.data; return; }
+    PJ.photos[k] = 'loading'; PJ.phBusy++;
+    conCall('pnp_photo', {project_id: PJ.pid, n: p.n}).then(r => {
+      PJ.phBusy--;
+      if (r.ok && r.data && r.data.data) { PJ.photos[k] = r.data.data; try { Connect.cacheSet('pnp_ph_' + k, JSON.stringify(r.data)); } catch (e) { /* large */ } } else PJ.photos[k] = 'none';
+      const img = document.querySelector(`[data-pjph="${k}"]`);
+      if (img && PJ.photos[k].startsWith('data:')) { img.style.backgroundImage = `url("${PJ.photos[k]}")`; img.classList.add('in'); }
+      pjPhotoLoad();
+    });
+  });
 }
 
-function pjTabDash() {
-  const p = pjProject(), d = PJ.data;
-  if (!p) return `<div class="card">${conEmpty('No project data in the Google Sheet yet. The PNP portal fills it on its next run.')}</div>`;
-  const pid = +p.project_id, sc = (d.scurve || []).filter(r => +r.project_id === pid), ms = (d.milestones || []).filter(r => +r.project_id === pid);
-  const hin = (d.hindrances || []).filter(r => +r.project_id === pid), paid = (d.payments || []).filter(r => +r.project_id === pid).reduce((s, r) => s + pjN(r.amount_cr), 0);
-  const fin = p.sanctioned_cr ? pjN(p.financial_cr || paid) / pjN(p.sanctioned_cr) * 100 : null;
-  const gap = pjN(p.physical_pct) - pjN(p.planned_pct_today);
-  const today = new Date().toISOString().slice(0, 10), next = ms.filter(m => !m.actual && String(m.schedule) >= today).slice(0, 4), late = ms.filter(m => pjN(m.delay_days) > 0);
-  let h = `<div class="pj-hero"><h3>${esc(p.project)}</h3><div class="pj-sub">${esc([p.station, p.type, p.stage || p.status].filter(Boolean).join(' · '))}</div>
-    <div class="vz-rings">${vzRing(pjN(p.physical_pct), {label: 'Physical', sub: 'actual', color: '#a78bfa', size: 86})}
-      ${vzRing(pjN(p.planned_pct_today), {label: 'Planned', sub: 'as of today', color: '#60a5fa', size: 86})}
-      ${vzRing(pjN(p.time_elapsed_pct), {label: 'Time', sub: 'elapsed', color: '#fbbf24', size: 86, dec: 0})}
-      ${fin !== null ? vzRing(fin, {label: 'Financial', sub: 'of sanction', color: '#34d399', size: 86}) : ''}</div></div>`;
-  h += vzKpis([
-    {k: 'Progress gap', v: (gap >= 0 ? '+' : '−') + fmt(Math.abs(gap), 1) + '%', sub: gap >= 0 ? 'ahead of plan' : 'behind plan', tone: gap >= 0 ? 'ok' : 'bad'},
-    {k: 'Days to sync', v: p.days_to_sync === '' || p.days_to_sync === undefined ? '—' : fmt(pjN(p.days_to_sync)), sub: 'to synchronisation', tone: pjN(p.days_to_sync) < 365 ? 'warn' : ''},
-    {k: 'Hindrances', v: fmt(pjN(p.open_hindrances)), sub: 'open', tone: pjN(p.open_hindrances) ? 'bad' : 'ok', act: 'data-pjgo="risk"'},
-    {k: 'Risks', v: fmt(pjN(p.open_risks)), sub: 'open', tone: pjN(p.open_risks) ? 'warn' : 'ok', act: 'data-pjgo="risk"'}], 2);
-  h += pjCard('S-curve', pjCurve(sc), conMore('cumulative %'));
-  const e = PJ.parts.engg, m = PJ.parts.mdcc;
-  if (e || m) {
-    const q = k => (e ? (e.queues || []).find(x => x.key === k) : null);
-    const appr = e ? (e.mdl_status || []).filter(x => /approved|information|rfc/i.test(x.k)).reduce((t, x) => t + x.n, 0) : 0;
-    h += pjCard('Engineering & material at a glance', `<div class="vz-rings">
-        ${e ? vzRing(e.mdl_total ? appr / e.mdl_total * 100 : 0, {label: 'MDL approved', sub: fmt(appr) + ' of ' + fmt(e.mdl_total), tone: 'ok'}) : ''}
-        ${e ? vzRing(e.mdl_total ? (e.mdl_total - ((e.mdl_status || []).find(x => /not\s*submitted/i.test(x.k)) || {n: 0}).n) / e.mdl_total * 100 : 0, {label: 'MDL submitted', sub: 'by BHEL'}) : ''}
-        ${m ? vzRing(m.cleared_pct || 0, {label: 'MDCC cleared', sub: fmt((m.states || {}).cleared || 0) + ' of ' + fmt(m.items) + ' items', color: '#0f766e'}) : ''}</div>
-      ${e ? vzKpis([{k: 'With GSECL', v: fmt(q('pending_approval')?.n || 0), sub: 'for approval', tone: 'warn', act: 'data-pjgo="engg"'},
-        {k: 'With BHEL', v: fmt(q('resub_pending')?.n || 0), sub: 'to resubmit', act: 'data-pjgo="engg"'},
-        {k: 'Due, not sent', v: fmt(q('due_not_submitted')?.n || 0), sub: 'by BHEL', tone: 'bad', act: 'data-pjgo="engg"'},
-        {k: 'MDCC requests', v: m ? fmt(m.requests) : '—', sub: 'to approve', tone: m && m.requests ? 'warn' : '', act: 'data-pjgo="mdcc"'}], 2) : ''}`, conMore('BHEL PEDM'));
+// ---------------------------------------------------------------- Management view (the portal's analytics)
+
+const pjMs = iso => (iso ? new Date(String(iso).slice(0, 10) + 'T00:00:00').getTime() : null);
+/** The project's time line: zero date → today → synchronisation → COD → completion, with the countdowns. */
+function pjTimeline(P, K) {
+  const z = pjMs(P.zero_date), end = pjMs(P.scheduled_completion) || pjMs(P.scheduled_cod);
+  if (!z || !end || end <= z) return '';
+  const pos = t => Math.max(0, Math.min(100, (t - z) / (end - z) * 100)), now = Date.now();
+  const marks = [['Zero date', P.zero_date], ['Synchronisation', P.scheduled_sync], ['COD', P.scheduled_cod], ['Completion', P.scheduled_completion]].filter(m => m[1]);
+  return `<div class="pj-time"><div class="pj-tbar"><i style="width:${pos(now)}%"></i>${marks.map(m => `<u style="left:${pos(pjMs(m[1]))}%"></u>`).join('')}
+      <em style="left:${pos(now)}%"><span>Today · ${fmt(K.elapsed_pct, 1)}%</span></em></div>
+    <div class="pj-tlab">${marks.map(m => `<div><b>${esc(m[0])}</b><span>${conDate(m[1])}</span></div>`).join('')}</div>
+    <div class="pj-cd"><div><b class="num">${fmt(K.elapsed_months, 1)}</b><span>of ${fmt(K.total_months)} months</span></div>
+      <div><b class="num">${fmt(K.days_to_sync)}</b><span>days to synchronisation</span></div><div><b class="num">${fmt(K.days_to_cod)}</b><span>days to COD</span></div></div></div>`;
+}
+/** Cumulative S-curve: the portal's planned curve (overall and by category) with the BHEL-reported plan / actual points. */
+function pjSCurve(D) {
+  const c = D.curve || [];
+  if (c.length < 2) return conEmpty('S-curve not available yet.');
+  const lab = c.map(r => r.label), mon = iso => String(iso).slice(0, 7), idx = iso => c.findIndex(r => mon(r.date) === mon(iso));
+  const rep = (D.reported || []).filter(r => idx(r.date) >= 0);
+  const at = k => { const a = c.map(() => null); rep.forEach(r => { a[idx(r.date)] = +r[k]; }); return a; };
+  const act = c.map(() => null); (D.actuals || []).forEach(r => { const i = idx(r.period_date); if (i >= 0 && r.overall !== null) act[i] = +r.overall; });
+  const eng = c.map(() => null); if (D.eng_measured) { const i = idx(new Date().toISOString()); if (i >= 0) eng[i] = +D.eng_measured.pct; }
+  const series = [{k: 'Planned overall (portal)', c: '#1d4ed8', pts: c.map(r => +r.overall), w: 2.6},
+    {k: 'Planned engineering', c: '#6a4fc9', pts: c.map(r => +r.engineering), dash: 1, w: 1.3}, {k: 'Planned civil', c: '#c98a12', pts: c.map(r => +r.civil), dash: 1, w: 1.3},
+    {k: 'BHEL report: plan', c: '#64748b', pts: at('plan'), dots: 1, w: 0}, {k: 'BHEL report: actual', c: '#be123c', pts: at('actual'), dots: 1, w: 0}];
+  if (act.some(v => v !== null)) series.push({k: 'Measured overall', c: '#15803d', pts: act, dots: 1, w: 0});
+  if (eng.some(v => v !== null)) series.push({k: 'Engineering measured', c: '#a855f7', pts: eng, dots: 1, w: 0});
+  return vzLine(series, lab, {max: 100, unit: '%', today: idx(new Date().toISOString()), aria: 'S-curve, cumulative progress', h: 170});
+}
+function pjMgmt() {
+  const D = pjD();
+  if (!D) {
+    if (PJ.partErr.dash) return pjCard('Not available', conEmpty(PJ.partErr.dash));
+    if (!PJ.parts.dash) return conSpin();
+    return pjCard('Project analytics', conEmpty('The projects portal has not sent its analytics for this project yet. They come on the portal\'s next run after its update.'));
   }
-  const ph = (d.phases || []).filter(r => +r.project_id === pid);
-  if (ph.length) h += pjCard('Phases', vzBars(ph.map(r => ({k: r.phase, v: pjN(r.progress_pct), note: [r.planned_start && 'plan ' + conDate(String(r.planned_start).slice(0, 10)) + ' – ' + conDate(String(r.planned_end).slice(0, 10)), r.status].filter(Boolean).join(' · ')})), {max: 100, unit: '%'}));
-  if (next.length || late.length) h += pjCard('Milestones', `<div class="pj-tl">${late.slice(0, 3).map(mm => `<div style="--c:#be123c"><b>${esc(mm.milestone)}</b><small>Scheduled ${conDate(mm.schedule)} · <b style="color:#be123c">${fmt(pjN(mm.delay_days))} days late</b>${mm.expected ? ' · expected ' + conDate(mm.expected) : ''}</small></div>`).join('')}
-      ${next.map(mm => `<div style="--c:#1d4ed8"><b>${esc(mm.milestone)}</b><small>Due ${conDate(mm.schedule)} · in ${fmt(-pjDays(mm.schedule))} days</small></div>`).join('')}</div>`, `<span class="more" data-pjact="tab" data-pjarg="ms">All ›</span>`);
-  if (hin.length) h += pjCard('Open hindrances', vzBars(hin.slice(0, 6).map(x => ({k: x.hindrance, v: pjN(x.days), label: fmt(pjN(x.days)) + ' d', c: pjAgeColor(pjN(x.days)), note: esc(x.agency || '')}))), `<span class="more" data-pjact="tab" data-pjarg="risk">All ›</span>`);
-  const up = d.updates || [];
-  if (up.length) h += pjCard('Team updates', `<div class="pj-list">${up.slice(0, 5).map(u => `<div class="pj-li"><span class="pj-d" style="background:#1d4ed8">${esc(String(u.type || 'Note').slice(0, 6))}</span><span class="pj-t"><b>${esc(u.title || '')}</b><span>${esc(String(u.text || '').slice(0, 140))}</span><span> · ${esc(u.by || '')}${u.when ? ' · ' + conDate(String(u.when).slice(0, 10)) : ''}</span></span></div>`).join('')}</div>`);
+  const P = D.profile || {}, K = D.kpis || {}, R = D.report || null, pl = K.planned || {};
+  const rp = R && R.overall_plan_pct !== null ? +R.overall_plan_pct : null, ra = R && R.overall_actual_pct !== null ? +R.overall_actual_pct : null;
+  const gap = rp !== null && ra !== null ? ra - rp : null, spi = rp ? ra / rp : null;
+  const tone = gap === null ? '' : gap >= 0 ? 'ok' : gap > -2 ? 'warn' : 'bad';
+  const status = gap === null ? ['Status not reported', '#64748b'] : gap >= 0 ? ['On schedule', '#15803d'] : gap > -2 ? ['Slightly behind plan', '#d97706'] : ['Behind plan', '#be123c'];
+  const contract = pjN(P.contract_value), exp = R && R.expenditure_cr !== null ? +R.expenditure_cr : null;
+  const mdl = K.mdl || {}, em = D.eng_measured, mp = K.manpower || {}, hse = K.hse || {}, hin = K.hindrance || {};
+  // hero
+  let h = `<div class="pj-exec"><div class="pj-eh"><div><span class="pj-tag">${esc(P.short_name || 'Project')}</span><h3>${esc(P.full_title || pjProject()?.project || '')}</h3>
+      <div class="pj-sub">${esc([P.location, P.technology].filter(Boolean).join(' · '))}</div></div>
+      <span class="pj-st" style="--c:${status[1]}"><i></i>${status[0]}</span></div>
+    <div class="pj-meta"><div><span>EPC</span><b>${esc(String(P.epc_contractor || '—').replace(/\s*[–—-]\s*EPC$/, ''))}</b></div><div><span>Owner's engineer</span><b>${esc(String(P.owner_engineer || '—').replace(/\s*(Pvt\.?\s*)?Ltd\.?$/i, ''))}</b></div>
+      <div><span>Contract value</span><b class="num">${contract ? pjCr(contract) : '—'}</b></div><div><span>With taxes</span><b class="num">${P.cost_incl_tax ? pjCr(P.cost_incl_tax) : '—'}</b></div></div>
+    ${pjTimeline(P, K)}</div>`;
+  // headline figures
+  h += vzKpis([
+    {k: 'Overall progress', v: ra !== null ? fmt(ra, 2) + '%' : '—', sub: rp !== null ? 'plan ' + fmt(rp, 2) + '% · BHEL report' : 'no status report yet', tone},
+    {k: 'Progress gap', v: gap !== null ? pjSigned(gap, 2) + ' pts' : '—', sub: spi ? 'SPI ' + fmt(spi, 2) + ' (actual ÷ plan)' : '', tone},
+    {k: 'Planned today', v: fmt(pl.overall, 1) + '%', sub: 'portal S-curve (L2 schedule)'},
+    {k: 'Time elapsed', v: fmt(K.elapsed_pct, 1) + '%', sub: fmt(K.elapsed_months, 1) + ' of ' + fmt(K.total_months) + ' months'},
+    {k: 'Engineering', v: em ? fmt(em.pct, 1) + '%' : '—', sub: em ? fmt(em.submitted) + ' submitted · ' + fmt(em.approved) + ' approved of ' + fmt(em.total) : 'measured from documents', act: 'data-pjgo="engg"'},
+    {k: 'Expenditure', v: exp !== null ? '₹' + fmt(exp, 2) + ' Cr' : '—', sub: exp !== null && contract ? fmt(exp * 1e7 / contract * 100, 1) + '% of contract' : '', act: 'data-pjgo="fin"'},
+    {k: 'Milestones', v: fmt(K.ms_achieved) + ' / ' + fmt(K.ms_total), sub: pjN(K.ms_due) ? fmt(K.ms_due) + ' overdue' : 'achieved', tone: pjN(K.ms_due) ? 'warn' : 'ok', act: 'data-pjgo="ms"'},
+    {k: 'Hindrances', v: fmt(pjN(hin.open_n)), sub: pjN(hin.open_n) ? 'open' + (pjN(hin.oldest) ? ' · oldest ' + fmt(pjN(hin.oldest)) + ' d' : '') : 'none open', tone: pjN(hin.open_n) ? 'bad' : 'ok', act: 'data-pjgo="risk"'},
+  ], 2);
+  if (K.next_milestone) h += `<div class="pj-next"><span>Next milestone</span><b>${esc(K.next_milestone.name)}</b><small>${conDate(K.next_milestone.planned)} · in ${fmt(K.next_milestone.days)} days</small></div>`;
+  // progress
+  h += pjCard('Physical progress — S-curve', pjSCurve(D), conMore('cumulative %'));
+  const w = D.weights || {}, ka = K.actual || {};
+  h += pjCard('Progress by work category', vzBars(Object.keys(PJ_CAT).map(k => ({k: PJ_CAT[k][0], v: +pl[k] || 0, c: PJ_CAT[k][1], mark: ka[k] !== undefined && ka[k] !== null ? +ka[k] : undefined,
+      label: fmt(+pl[k] || 0, 1) + '%' + (ka[k] !== undefined && ka[k] !== null ? ' · actual ' + fmt(+ka[k], 1) + '%' : ''),
+      note: 'weight ' + fmt(+w[k] || 0, 0) + '% of the project' + (k === 'engineering' && em ? ' · measured ' + fmt(em.pct, 1) + '% from documents' : '')})), {max: 100}), conMore('planned today'));
+  // milestones (contract tracker of the status report)
+  const tr = D.tracker || [];
+  if (tr.length) {
+    const done = tr.filter(m => m.actual_date).length, late = tr.filter(m => !m.actual_date && pjN(m.delay_days) > 0).length;
+    h += pjCard('Contract milestones', `<div class="vz-rings">${vzRing(done / tr.length * 100, {label: 'Achieved', sub: done + ' of ' + tr.length, tone: 'ok', size: 82})}${vzRing(late / tr.length * 100, {label: 'Expected late', sub: late + ' milestones', tone: late ? 'bad' : 'ok', size: 82})}</div>
+      <div class="pj-tl" style="margin-top:12px">${tr.map(m => { const d = pjN(m.delay_days), c = m.actual_date ? '#15803d' : d > 0 ? '#be123c' : '#1d4ed8';
+        return `<div style="--c:${c}"><b>${esc(m.name)}</b><small>Scheduled ${conDate(m.schedule_date)}${m.actual_date ? ' · done ' + conDate(m.actual_date) : m.expected_date ? ' · expected ' + conDate(m.expected_date) : ''}${d > 0 ? ` · <b style="color:#be123c">+${fmt(d)} days</b>` : ''}</small>${m.remarks ? `<small>${esc(m.remarks)}</small>` : ''}</div>`; }).join('')}</div>`, conMore(R ? 'status report ' + conDate(R.as_of) : ''));
+  }
+  // key messages of the status report
+  if (R && ((R.takeaways || []).length || (R.way_forward || []).length)) h += pjCard('Key takeaways', `<ul class="pj-ul">${(R.takeaways || []).map(t => `<li>${esc(t)}</li>`).join('')}</ul>
+    ${(R.way_forward || []).length ? `<h4 class="pj-h4">Way forward</h4><ul class="pj-ul fwd">${R.way_forward.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}`, conMore(R.period_text || ''));
+  // money
+  const cf = D.cashflow || {}, ct = cf.totals || {}, rows = cf.rows || [];
+  if (rows.length > 1) {
+    const ti = rows.findIndex(r => String(r.date).slice(0, 7) === new Date().toISOString().slice(0, 7)), paidPts = rows.map((r, i) => (ti < 0 || i <= ti ? +r.paid : null));
+    h += pjCard('Financial progress', vzKpis([{k: 'Awarded', v: '₹' + fmt(ct.awarded, 0) + ' Cr', sub: 'packages'}, {k: 'Planned to date', v: '₹' + fmt(ct.planned_now, 0) + ' Cr', sub: 'cash-flow plan'},
+      {k: 'Paid to date', v: '₹' + fmt(ct.paid, 0) + ' Cr', sub: ct.planned_now ? fmt(ct.paid / ct.planned_now * 100, 0) + '% of planned' : '', tone: ct.planned_now && ct.paid < ct.planned_now * .9 ? 'warn' : 'ok'}], 3)
+      + vzLine([{k: 'Planned (cumulative)', c: '#1d4ed8', pts: rows.map(r => +r.planned)}, {k: 'Paid (cumulative)', c: '#15803d', pts: paidPts, w: 2.6}], rows.map(r => r.label), {unit: '', dec: 0, today: ti, aria: 'Financial S-curve, ₹ crore'}), conMore('₹ Cr'));
+  }
+  const pb = R ? (R.price_breakup || []).filter(x => !/total/i.test(x[0])) : [];
+  if (pb.length) h += pjCard('Contract price break-up', vzDonut(pb.map((x, i) => ({k: x[0], n: Math.round(+x[1]), c: ['#1d4ed8', '#0891b2', '#0f766e', '#c98a12', '#94a3b8', '#7c3aed'][i]})), {label: '₹ Cr', size: 116}));
+  if (R && R.non_epc_budget_cr) h += pjCard('Non-EPC works', `<div class="vz-rings">${vzRing(pjN(R.non_epc_spent_cr) / pjN(R.non_epc_budget_cr) * 100, {label: 'Spent', sub: '₹' + fmt(pjN(R.non_epc_spent_cr), 1) + ' of ₹' + fmt(pjN(R.non_epc_budget_cr), 0) + ' Cr', color: '#0f766e', dec: 1})}</div>`);
+  // supply
+  const mt = R ? R.materials || [] : [];
+  if (mt.length) h += pjCard('Material received at site', vzBars(mt.map(x => ({k: x.item, v: pjN(x.total_mt) ? pjN(x.received_mt) / pjN(x.total_mt) * 100 : 0, label: fmt(pjN(x.received_mt)) + ' / ' + fmt(pjN(x.total_mt)) + ' MT',
+    c: pjN(x.received_mt) >= pjN(x.total_mt) ? '#15803d' : '#0891b2', note: esc(x.unit || '')})), {max: 100}), conMore('received / total'));
+  // site and safety
+  const mpa = D.manpower || [];
+  h += pjCard('Site and safety', vzKpis([
+    {k: 'Manpower', v: fmt(pjN(mp.act)), sub: 'of ' + fmt(pjN(mp.plan)) + ' planned' + (K.dpr_date ? ' · ' + conDate(K.dpr_date) : ''), tone: pjN(mp.act) >= pjN(mp.plan) * .9 ? 'ok' : 'warn', act: 'data-pjgo="site"'},
+    {k: 'Safe man-hours', v: fmt(pjN(hse['Safe man-hours (cumulative)'])), sub: 'cumulative', tone: 'ok'},
+    {k: 'Near misses', v: fmt(pjN(hse['Other Near miss'])), sub: 'reported', tone: pjN(hse['Other Near miss']) ? 'warn' : 'ok'},
+    {k: 'Unsafe acts / conditions', v: fmt(pjN(hse['Unsafe Act'])) + ' / ' + fmt(pjN(hse['Unsafe Condition'])), sub: 'on the day', tone: pjN(hse['Unsafe Act']) + pjN(hse['Unsafe Condition']) ? 'bad' : 'ok'}], 2)
+    + (mpa.length ? vzBars(mpa.map(x => ({k: x.agency, v: pjN(x.act), mark: pjN(x.plan), label: fmt(pjN(x.act)) + ' / ' + fmt(pjN(x.plan)), c: pjN(x.act) >= pjN(x.plan) * .9 ? '#15803d' : '#d97706'})), {max: Math.max(...mpa.map(x => Math.max(pjN(x.plan), pjN(x.act))), 1)}) : ''), conMore('daily progress report'));
+  const cv = (D.civil || []).filter(x => x.latest && pjN(x.latest.total_fdn));
+  if (cv.length) h += pjCard('Foundations by area', vzBars(cv.sort((a, b) => pjN(b.latest.total_fdn) - pjN(a.latest.total_fdn)).slice(0, 10).map(x => ({k: x.area, v: pjN(x.latest.done_fdn) / pjN(x.latest.total_fdn) * 100,
+    label: fmt(pjN(x.latest.done_fdn)) + ' / ' + fmt(pjN(x.latest.total_fdn)), c: pjN(x.latest.done_fdn) >= pjN(x.latest.total_fdn) ? '#15803d' : '#c98a12'})), {max: 100}), `<span class="more" data-pjgo="site">Site ›</span>`);
+  const ho = (D.hindrances || []).filter(x => x.status === 'Open');
+  if (ho.length) h += pjCard('Open hindrances', `<div class="pj-list">${ho.slice(0, 5).map(x => `<div class="pj-li"><span class="pj-d" style="background:${pjAgeColor(pjN(x.days))}">${x.days !== null ? fmt(pjN(x.days)) : '…'}<small>${x.days !== null ? 'days' : 'open'}</small></span>
+    <span class="pj-t"><b>${esc(x.description)}</b><span>${esc([x.agency, x.to_date && 'target ' + conDate(x.to_date)].filter(Boolean).join(' · '))}</span></span></div>`).join('')}</div>`, `<span class="more" data-pjgo="risk">All ›</span>`);
+  h += pjPhotoStrip();
+  h += `<div class="note-src">Figures as computed by the projects portal (Project Control Centre) on ${esc(conDate(D.generated_at, true))}${R ? '; BHEL status report of ' + conDate(R.as_of) : ''}${K.dpr_date ? '; daily progress report of ' + conDate(K.dpr_date) : ''}.</div>`;
   return h;
+}
+/** Site photographs from the status reports and the portal: a strip of thumbnails, tap to enlarge. */
+function pjPhotoStrip() {
+  const list = (PJ.parts.photos && PJ.parts.photos.photos) || [];
+  if (!list.length) return '';
+  setTimeout(pjPhotoLoad, 0);
+  return pjCard('Site photographs', `<div class="pj-photos">${list.map(p => { const k = PJ.pid + '_' + p.n, src = PJ.photos[k];
+      return `<button class="pj-ph ${src && src.startsWith('data:') ? 'in' : ''}" data-pjph="${k}" data-pjact="photo" data-pjarg="${p.n}" style="${src && src.startsWith('data:') ? `background-image:url('${src}')` : ''}" aria-label="${esc(p.title)}">
+        <span>${esc(p.title)}</span></button>`; }).join('')}</div>`, conMore(list.length + ' photos'));
+}
+function pjPhotoOpen(n) {
+  const p = ((PJ.parts.photos && PJ.parts.photos.photos) || []).find(x => x.n === +n), src = PJ.photos[PJ.pid + '_' + n];
+  if (!p || !src || !src.startsWith('data:')) return;
+  const box = document.createElement('div');
+  box.className = 'pj-light';
+  box.innerHTML = `<div><img src="${src}" alt=""><b>${esc(p.title)}</b><span>${esc([p.section !== p.title ? p.section : '', p.taken_on && conDate(p.taken_on)].filter(Boolean).join(' · '))}</span></div>`;
+  box.addEventListener('click', () => box.remove());
+  document.body.appendChild(box);
+}
+
+// ---------------------------------------------------------------- engineering view: the portal's analytics per tab
+
+/** BHEL PEDM summary as the portal computes it (status buckets, submission against schedule, divisions, review ageing). */
+function pjPedm(D) {
+  const pm = D && D.pedm;
+  if (!pm) return '';
+  const B = pm.buckets || {}, C = {'Approved': '#15803d', 'With GSECL': '#d97706', 'Resubmission due (BHEL)': '#7c3aed', 'Overdue, not submitted': '#be123c', 'Not yet due': '#cbd5e1'}, A = pm.action || {};
+  let h = `<div class="card"><h2>BHEL PEDM — document position ${conMore(pm.fetched ? 'read ' + conDate(pm.fetched, true) : '')}</h2><div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      ${vzRing(pm.sub_pct_due || 0, {label: 'Submitted on time', sub: fmt(pm.due_sub) + ' of ' + fmt(pm.due) + ' due', tone: pjN(pm.sub_pct_due) >= 80 ? 'ok' : pjN(pm.sub_pct_due) >= 60 ? 'warn' : 'bad', size: 100, dec: 1})}
+      <div style="flex:1;min-width:170px">${vzDonut(Object.keys(B).map(k => ({k, n: B[k], c: C[k]})), {label: 'documents', size: 100, stroke: 14})}</div></div></div>`;
+  h += vzKpis([{k: 'With GSECL', v: fmt(B['With GSECL'] || 0), sub: fmt(pjN(A.pending_a)) + ' approval · ' + fmt(pjN(A.pending_i)) + ' info', tone: 'warn'},
+    {k: 'BHEL to resubmit', v: fmt(B['Resubmission due (BHEL)'] || 0), sub: 'commented'}, {k: 'Overdue', v: fmt(B['Overdue, not submitted'] || 0), sub: 'not submitted by BHEL', tone: 'bad'},
+    {k: 'RFC / MDCC', v: fmt(pjN(A.rfc)) + ' / ' + fmt(pjN(A.mdcc)), sub: 'released · despatch to clear'}], 2);
+  const ga = pm.gs_age || {};
+  if (Object.keys(ga).length) h += pjCard('Documents with GSECL — how long', vzCols(Object.keys(ga).map((k, i) => ({k: k + ' d', v: ga[k], c: ['#15803d', '#ca8a04', '#d97706', '#be123c'][i]}))), conMore('days pending'));
+  const dv = pm.divisions || [];
+  if (dv.length) h += pjCard('By BHEL division', vzStack(dv.slice(0, 14).map(x => ({k: x.name, parts: [x.appr, x.gs, x.bh, x.over, Math.max(0, x.total - x.appr - x.gs - x.bh - x.over)], label: fmt(x.total)})),
+    [{k: 'Approved', c: '#15803d'}, {k: 'With GSECL', c: '#d97706'}, {k: 'With BHEL', c: '#7c3aed'}, {k: 'Overdue', c: '#be123c'}, {k: 'Not yet due', c: '#cbd5e1'}]));
+  const mo = Object.keys(pm.months || {}).filter(m => m <= new Date().toISOString().slice(0, 7)).slice(-12);
+  if (mo.length) h += pjCard('Scheduled submissions by month', vzStack(mo.map(m => { const o = pm.months[m] || {}; return {k: m.slice(2).replace('-', '/'), parts: [o['Approved'] || 0, o['With GSECL'] || 0, o['Resubmission due (BHEL)'] || 0, o['Overdue, not submitted'] || 0]}; }),
+    [{k: 'Approved', c: '#15803d'}, {k: 'With GSECL', c: '#d97706'}, {k: 'With BHEL', c: '#7c3aed'}, {k: 'Overdue', c: '#be123c'}]), conMore('last 12 months'));
+  return h;
+}
+/** DPR sections, foundations and the 60-day look-ahead from the portal. */
+function pjSiteDash(D) {
+  if (!D) return '';
+  let h = '';
+  const ds = D.dpr_sections || [];
+  if (ds.length) h += pjCard('Progress by section (daily progress report)', vzBars(ds.map(x => ({k: x.section, v: pjN(x.pct), c: x.state === 'done' ? '#15803d' : pjN(x.pct) ? '#1d4ed8' : '#cbd5e1',
+    note: esc([fmt(x.n) + ' activities', fmt(x.done) + ' done', x.not_started ? fmt(x.not_started) + ' not started' : '', x.stage].filter(Boolean).join(' · '))})), {max: 100, unit: '%'}), conMore(D.kpis && D.kpis.dpr_date ? conDate(D.kpis.dpr_date) : ''));
+  const cv = (D.civil || []).filter(x => x.latest && pjN(x.latest.total_fdn));
+  if (cv.length) h += pjCard('Foundations and PCC by area', vzStack(cv.sort((a, b) => pjN(b.latest.total_fdn) - pjN(a.latest.total_fdn)).map(x => ({k: x.area, parts: [pjN(x.latest.done_fdn), Math.max(0, pjN(x.latest.done_pcc) - pjN(x.latest.done_fdn)), Math.max(0, pjN(x.latest.total_fdn) - Math.max(pjN(x.latest.done_fdn), pjN(x.latest.done_pcc)))],
+    label: fmt(pjN(x.latest.done_fdn)) + ' / ' + fmt(pjN(x.latest.total_fdn))})), [{k: 'Foundation cast', c: '#15803d'}, {k: 'PCC only', c: '#c98a12'}, {k: 'Not started', c: '#cbd5e1'}]), conMore(cv[0].latest.report_date ? conDate(cv[0].latest.report_date) : ''));
+  const la = D.lookahead || [];
+  if (la.length) h += `<details class="card pj-det" open><summary><h2 style="margin:0">Next 60 days (L2 schedule)</h2></summary><div class="pj-list" style="margin-top:10px">${la.map(x => { const c = (PJ_CAT[x.category] || ['', '#475569'])[1];
+    return `<div class="pj-li"><span class="pj-d" style="background:${c}">${fmt(pjN(x.pct_complete), 0)}<small>%</small></span><span class="pj-t"><b>${esc(x.name)}</b><span>${esc((PJ_CAT[x.category] || [x.category])[0])} · ${conDate(x.start_date)} – ${conDate(x.finish_date)}</span></span></div>`; }).join('')}</div></details>`;
+  return h;
+}
+/** Every L2 milestone with its state and variance (portal), and the contract tracker of the status report. */
+function pjTabSched() {
+  const D = pjD();
+  if (!D) return PJ.partErr.dash ? pjCard('Not available', conEmpty(PJ.partErr.dash)) : conSpin();
+  const ms = D.milestones || [], n = s => ms.filter(m => m.state === s).length, C = {achieved: '#15803d', due: '#be123c', upcoming: '#1d4ed8'};
+  let h = `<div class="card"><h2>Schedule milestones (L2)</h2><div class="vz-rings">${vzRing(ms.length ? n('achieved') / ms.length * 100 : 0, {label: 'Achieved', sub: n('achieved') + ' of ' + ms.length, tone: 'ok'})}
+    ${vzRing(ms.length ? n('due') / ms.length * 100 : 0, {label: 'Overdue', sub: n('due') + ' past the plan', tone: n('due') ? 'bad' : 'ok'})}${vzRing(ms.length ? n('upcoming') / ms.length * 100 : 0, {label: 'Upcoming', sub: n('upcoming') + ' ahead'})}</div></div>`;
+  h += `<div class="card"><h2>Timeline ${conMore('plan · actual / variance')}</h2><div class="pj-tl">${ms.map(m => `<div style="--c:${C[m.state] || '#94a3b8'}"><b>${esc(m.name)}</b>
+    <small>Plan ${conDate(m.planned)}${m.actual ? ' · done ' + conDate(m.actual) + (pjN(m.variance_days) ? ' (' + pjSigned(pjN(m.variance_days), 0) + ' d)' : '') : m.state === 'due' ? ` · <b style="color:#be123c">${fmt(pjN(m.variance_days))} days overdue</b>` : ' · in ' + fmt(pjN(m.variance_days)) + ' days'}${m.forecast ? ' · forecast ' + conDate(m.forecast) : ''}</small></div>`).join('')}</div></div>`;
+  return h + pjTabMs();
+}
+/** Cash flow, payments, cash plan and non-EPC works from the status report (portal). */
+function pjFinDash(D) {
+  if (!D) return '';
+  let h = '';
+  const fp = D.fin_payments || [];
+  if (fp.length) h += pjCard('Payments to BHEL (status report)', vzBars(fp.map(x => ({k: x.term || x.remark, v: pjN(x.amount_cr), label: '₹' + fmt(pjN(x.amount_cr), 1) + ' Cr', c: '#15803d', note: esc([x.remark, x.fy].filter(Boolean).join(' · '))}))), conMore('₹ Cr'));
+  const cp = D.cash_plan || [];
+  if (cp.length) h += pjCard('Cash plan and drawdown by year', vzStack(cp.map(x => ({k: x.fy, parts: [Math.min(pjN(x.actual_cr), pjN(x.planned_cr)), Math.max(0, pjN(x.planned_cr) - pjN(x.actual_cr)), Math.max(0, pjN(x.actual_cr) - pjN(x.planned_cr))], label: '₹' + fmt(pjN(x.actual_cr), 0) + ' / ' + fmt(pjN(x.planned_cr), 0)})),
+    [{k: 'Drawn', c: '#15803d'}, {k: 'Planned, not drawn', c: '#cbd5e1'}, {k: 'Above plan', c: '#0891b2'}]), conMore('₹ Cr'));
+  const ne = D.non_epc || [];
+  if (ne.length) h += pjCard('Non-EPC works', `<div class="pj-list">${ne.map(x => `<div class="pj-li"><span class="pj-d" style="background:#0f766e">${fmt(pjN(x.budget_total_cr), 0)}<small>₹ Cr</small></span><span class="pj-t"><b>${esc(x.item)}</b><span>${esc(x.agency || '')}</span></span></div>`).join('')}</div>`);
+  const sv = D.subvendors || [];
+  if (sv.length) h += `<details class="card pj-det"><summary><h2 style="margin:0">Sub-vendors (${sv.length})</h2></summary><div class="pj-list" style="margin-top:10px">${sv.map(x => `<div class="pj-li"><span class="pj-d" style="background:${/order/i.test(x.order_status || '') ? '#15803d' : '#d97706'}">${/order/i.test(x.order_status || '') ? '✓' : '…'}</span>
+    <span class="pj-t"><b>${esc(x.package_name)}</b><span>${esc([x.vendor, x.order_status].filter(Boolean).join(' · '))}</span></span></div>`).join('')}</div></details>`;
+  return h;
+}
+/** Every hindrance (portal), open first. */
+function pjHinDash(D) {
+  const hs = (D && D.hindrances) || [];
+  if (!hs.length) return '';
+  return `<details class="card pj-det" open><summary><h2 style="margin:0">Hindrances (${hs.filter(x => x.status === 'Open').length} open of ${hs.length})</h2></summary><div class="pj-list" style="margin-top:10px">${hs.map(x => { const o = x.status === 'Open';
+    return `<div class="pj-li"><span class="pj-d" style="background:${o ? pjAgeColor(pjN(x.days)) : '#15803d'}">${o ? (x.days !== null ? fmt(pjN(x.days)) : '…') : '✓'}<small>${o ? (x.days !== null ? 'days' : 'open') : 'closed'}</small></span>
+      <span class="pj-t"><b>${esc(x.description)}</b><span>${esc([x.agency, x.from_date && 'from ' + conDate(x.from_date), x.to_date && (o ? 'target ' : 'till ') + conDate(x.to_date)].filter(Boolean).join(' · '))}${x.remarks ? ' · ' + esc(String(x.remarks).slice(0, 220)) : ''}</span></span></div>`; }).join('')}</div></details>`;
 }
 
 // ---------------------------------------------------------------- engineering (BHEL PEDM)
@@ -292,6 +474,20 @@ function pjTabUp() {
 
 // ---------------------------------------------------------------- page
 
+/** Engineering view: each tab its own summary plus the portal's analytics for it. */
+function pjEngView() {
+  const D = pjD();
+  switch (PJ.tab) {
+    case 'engg': return pjPedm(D) + (PJ.parts.engg ? pjTabEngg() : pjWait('engg'));
+    case 'mdcc': return pjTabMdcc();
+    case 'site': return pjSiteDash(D) + (PJ.parts.site ? pjTabSite() : pjWait('site'));
+    case 'ms': return pjTabSched();
+    case 'fin': return pjFinDash(D) + (PJ.parts.fin ? pjTabFin() : pjWait('fin'));
+    case 'risk': return pjHinDash(D) + (PJ.parts.risk ? pjTabRisk() : pjWait('risk'));
+    case 'up': return pjTabUp();
+  }
+  return pjTabEngg();
+}
 function pjRender() {
   const box = $('pjBody');
   if (!box || !$('v-projects') || !$('v-projects').classList.contains('on')) return;
@@ -300,12 +496,14 @@ function pjRender() {
   else if (!appCan('projects')) h = `<div class="card">${conEmpty('You have not been given access to the Projects page. Access is given by the administrator on the Employees screen.')}</div>`;
   else if (!PJ.data) h = PJ.error ? pjMsg() + `<div style="text-align:center">${pjBtn('Try again', 'reload')}</div>` : conSpin();
   else {
-    const projects = PJ.data.projects || [], busy = PJ.busy || PJ.partBusy[PJ.tab];
+    const projects = PJ.data.projects || [], busy = PJ.busy || PJ.partBusy.dash || (PJ.view === 'engg' && PJ.partBusy[PJ.tab]);
     h = (projects.length > 1 ? `<select class="search" id="pjPick" style="margin:0 0 8px">${projects.map(p => `<option value="${p.project_id}" ${+p.project_id === +PJ.pid ? 'selected' : ''}>${esc(p.project)}</option>`).join('')}</select>` : '')
-      + `<div class="pj-tabs" role="tablist">${PJ_TABS.map(([k, l]) => `<button class="${PJ.tab === k ? 'on' : ''}" data-pjact="tab" data-pjarg="${k}" role="tab">${pjIc(k)}${l}</button>`).join('')}</div>`
+      + `<div class="pj-mode" role="tablist"><button class="${PJ.view === 'mgmt' ? 'on' : ''}" data-pjact="view" data-pjarg="mgmt" role="tab">${pjIc('mgmt')}<span>Management<small>overview</small></span></button>
+          <button class="${PJ.view === 'engg' ? 'on' : ''}" data-pjact="view" data-pjarg="engg" role="tab">${pjIc('team')}<span>Engineering<small>detailed</small></span></button></div>`
+      + (PJ.view === 'engg' ? `<div class="pj-tabs" role="tablist">${PJ_TABS.map(([k, l]) => `<button class="${PJ.tab === k ? 'on' : ''}" data-pjact="tab" data-pjarg="${k}" role="tab">${pjIc(k)}${l}</button>`).join('')}</div>` : '')
       + (busy ? '<div class="sync-bar" role="progressbar" aria-label="Updating"></div>' : '')
-      + (PJ.tab === 'up' ? '' : pjMsg())
-      + ({dash: pjTabDash, engg: pjTabEngg, mdcc: pjTabMdcc, site: pjTabSite, fin: pjTabFin, risk: pjTabRisk, ms: pjTabMs, up: pjTabUp}[PJ.tab] || pjTabDash)()
+      + (PJ.view === 'engg' && PJ.tab === 'up' ? '' : pjMsg())
+      + (PJ.view === 'mgmt' ? pjMgmt() : pjEngView())
       + `<div class="note-src" style="text-align:center;margin:8px 0 0">From the projects portal via the Google Sheet${PJ.data.refreshed_at ? ' (portal run ' + conDate(String(PJ.data.refreshed_at).replace('T', ' '), true) + ')' : ''} · read ${typeof wAgo === 'function' ? wAgo(PJ.stamp) : ''} · <a data-pjact="reload">Refresh</a></div>`;
   }
   const y = window.scrollY;
@@ -342,8 +540,18 @@ async function pjSend() {
   pjRender();
 }
 
+function pjSetView(v) {
+  PJ.view = v; PJ.note = ''; PJ.error = '';
+  try { localStorage.setItem('pjView', v); } catch (e) { /* not kept */ }
+  pjRender(); window.scrollTo({top: 0});
+  if (typeof uiEnter === 'function') uiEnter($('v-projects'));
+  pjNeedParts();
+}
 function pjOpenTab(k) {
-  PJ.tab = k; PJ.note = ''; PJ.error = ''; pjRender(); window.scrollTo({top: 0});
+  if (k === 'dash' || k === 'mgmt') return pjSetView('mgmt');
+  PJ.view = 'engg'; PJ.tab = k; PJ.note = ''; PJ.error = '';
+  try { localStorage.setItem('pjView', 'engg'); localStorage.setItem('pjTab', k); } catch (e) { /* not kept */ }
+  pjRender(); window.scrollTo({top: 0});
   if (typeof uiEnter === 'function') uiEnter($('v-projects'));
   pjNeedParts();
   const b = document.querySelector(`.pj-tabs [data-pjarg="${k}"]`); if (b) b.scrollIntoView({inline: 'center', block: 'nearest', behavior: 'smooth'});
@@ -355,9 +563,11 @@ document.addEventListener('click', e => {
   if (!el || typeof Connect === 'undefined') return;
   const arg = el.dataset.pjarg || '';
   switch (el.dataset.pjact) {
+    case 'view': return pjSetView(arg);
     case 'tab': return pjOpenTab(arg);
     case 'reload': PJ.parts = {}; return pjLoad(true);
     case 'doccat': PJ.docCat = arg; PJ.keepScroll = true; return pjRender();
+    case 'photo': return pjPhotoOpen(arg);
     case 'cam': return $('pjCam') && $('pjCam').click();
     case 'pick': return $('pjFile') && $('pjFile').click();
     case 'send': return pjSend();
@@ -374,9 +584,10 @@ document.addEventListener('change', e => {
 /** Called by show('projects'). */
 function pjShow() { pjRender(); if (appCan('projects')) pjLoad(false); }
 
-/** Android back button: back to the overview tab first. */
+/** Android back button: a photo first, then back to the management overview. */
 const pjPrevBack = window.appBack;
 window.appBack = () => {
-  if ($('v-projects') && $('v-projects').classList.contains('on') && PJ.tab !== 'dash') { pjOpenTab('dash'); return true; }
+  const lb = document.querySelector('.pj-light'); if (lb) { lb.remove(); return true; }
+  if ($('v-projects') && $('v-projects').classList.contains('on') && PJ.view !== 'mgmt') { pjSetView('mgmt'); return true; }
   return pjPrevBack ? pjPrevBack() : false;
 };

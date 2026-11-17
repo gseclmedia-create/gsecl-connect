@@ -33,10 +33,9 @@ function tbItems() {
     const f = o.filter(r => r.type === 'Forced');
     add(f.length ? `Forced outage <b>${f.length} unit${f.length > 1 ? 's' : ''}</b> <i>${esc(f.slice(0, 3).map(r => r.unit).join(', '))}${f.length > 3 ? '…' : ''} · ${fmt(f.reduce((t, r) => t + (parseFloat(r.cap) || 0), 0))} MW</i>` : 'No GSECL unit on forced outage', f.length ? 'dn' : 'up', '🛑', f.length ? '#be123c' : '#15803d');
   }
-  // trips and syncs of the last 6 hours (the app's own notifications)
+  // synchronisations, trips and outage changes of the last 6 hours (the app's own notifications), with the unit
   try {
-    if (typeof alertLog === 'function') alertLog().filter(a => Date.now() - a.t < 6 * 36e5).slice(-4).reverse().forEach(a =>
-      add(`${a.kind === 'sync' ? 'Synchronised' : 'Tripped'} <b>${esc(String(a.title || '').replace(/^.*?:\s*/, ''))}</b> <i>${new Date(a.t).toTimeString().slice(0, 5)}</i>`, a.kind === 'sync' ? 'up' : 'dn', a.kind === 'sync' ? '🔼' : '🔻', a.kind === 'sync' ? '#15803d' : '#be123c'));
+    if (typeof alertLog === 'function') alertLog().filter(a => Date.now() - a.t < 6 * 36e5).slice(-4).reverse().forEach(a => add(...tbAlert(a)));
   } catch (e) { /* none */ }
   const fq = h && h.freq ? h.freq.value : null;
   if (fq) add(`Frequency <b>${fmt(fq, 2)} Hz</b>${fq < 49.9 ? ' <i>below band</i>' : fq > 50.05 ? ' <i>above band</i>' : ''}`, fq < 49.9 || fq > 50.05 ? 'wa' : '', '〰', fq < 49.9 || fq > 50.05 ? '#d97706' : '#475569');
@@ -51,6 +50,25 @@ function tbItems() {
   const n = typeof C !== 'undefined' && C.home && (C.home.latest_news || [])[0];
   if (n) add(`News: <b>${esc(n.title)}</b>`, '', '📰', '#f47b57');
   return L;
+}
+
+/**
+ * One logged notification as a highlight [html, kind, icon, colour], naming the unit: a synchronisation keeps the unit
+ * in its text ("WTPS Unit 3 is generating 650 MW …"), an outage change in its title ("Forced outage: KLTPS-4",
+ * "Outage over: WTPS-3", "RSD: GTPS-5", "GTPS-5: now Forced").
+ */
+function tbAlert(a) {
+  const at = ` <i>${new Date(a.t).toTimeString().slice(0, 5)}</i>`, title = String(a.title || ''), text = String(a.text || '');
+  if (a.kind === 'sync' || /synchronis/i.test(title)) {
+    const m = /^(.*?) is generating ([\d,.]+) MW/.exec(text);
+    return [`Synchronised <b>${esc(m ? m[1] : text || 'unit')}</b>${m ? ` <i>${esc(m[2])} MW</i>` : ''}${at}`, 'up', '🔼', '#15803d'];
+  }
+  let m;
+  if ((m = /^Outage over:\s*(.+)$/i.exec(title))) return [`Back from outage <b>${esc(m[1])}</b>${at}`, 'up', '✅', '#15803d'];
+  if ((m = /^(?:Now a )?forced outage(?: updated)?:\s*(.+)$/i.exec(title))) return [`${/updated/i.test(title) ? 'Forced outage updated' : 'Tripped / forced outage'} <b>${esc(m[1])}</b>${at}`, 'dn', '🔻', '#be123c'];
+  if ((m = /^(.+?):\s*now\s+(.+)$/i.exec(title))) return [`<b>${esc(m[1])}</b> now ${esc(m[2])}${at}`, /forced/i.test(m[2]) ? 'dn' : 'wa', '🔁', '#d97706'];
+  if ((m = /^(.+?)(?: updated)?:\s*(.+)$/.exec(title))) return [`${esc(m[1])} <b>${esc(m[2])}</b>${at}`, 'wa', '🛠️', '#d97706'];
+  return [`${esc(title || 'Alert')}${at}`, '', '🔔', '#475569'];
 }
 
 /** Redraws the ticker when its text changes (speed follows its length). */

@@ -1728,6 +1728,14 @@ $('accPass').addEventListener('click', () => { if (hasNative('changePassword')) 
 
 /** What's new in each version (Profile › About): interface and feature changes users notice, the newest first. */
 const RELEASE_NOTES = [
+  ['3.28.1', '17 Nov 2026', [
+    'Highlights and the daily pop-up now name the unit: "Synchronised Wanakbori TPS Unit 3 · 652 MW", "Tripped / forced outage KLTPS-4", "Back from outage WTPS-3" (a unit back from an outage was shown as tripped)',
+  ]],
+  ['3.28.0', '17 Nov 2026', [
+    'Projects redesigned in two views. Management: the project at a glance — time line to synchronisation and COD, BHEL-reported progress against plan with the gap and SPI, the portal S-curve, engineering measured, expenditure, milestones, hindrances, key takeaways, financial S-curve, price break-up, material received, site and safety, and site photographs',
+    'Engineering: detailed tabs — BHEL PEDM document position (submission on time, status, review ageing, divisions, monthly profile), MDCC, site (DPR sections, foundations, 60-day look-ahead), schedule (every L2 milestone with its variance), finance (payments, cash plan, non-EPC, sub-vendors) and risks with all hindrances',
+    'Every figure now comes from the analytics of the projects portal, so the app shows exactly what the Project Control Centre shows',
+  ]],
   ['3.27.1', '16 Nov 2026', [
     'Merit order on the web version: the latest SLDC merit order read by the Android app is now shared through GSECL Connect, so the web page (and phones that cannot reach SLDC) show the current rates.',
   ]],
